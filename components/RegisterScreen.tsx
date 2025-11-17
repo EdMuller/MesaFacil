@@ -12,8 +12,9 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ role, onBack }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [name, setName] = useState('');
-    const [phone, setPhone] = useState(''); // Establishment only
-    const [photo, setPhoto] = useState<string | null>(null);
+    const [phone, setPhone] = useState(''); 
+    const [cep, setCep] = useState(''); // Customer only
+    const [photo, setPhoto] = useState<string | null>(null); // Establishment only
     const [error, setError] = useState('');
     const [showCamera, setShowCamera] = useState(false);
 
@@ -26,7 +27,7 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ role, onBack }) => {
             if (isEstablishment) {
                 registerEstablishment(name, phone, email, password, photo);
             } else {
-                registerCustomer(name, email, password);
+                registerCustomer(name, email, password, phone, cep);
             }
         } catch (err: any) {
             setError(err.message || 'Falha no cadastro.');
@@ -59,7 +60,7 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ role, onBack }) => {
                     &larr; Voltar
              </button>
             <div className="w-full max-w-sm text-center">
-                <h1 className="text-3xl font-bold text-blue-600 mb-2">Criar Conta de {isEstablishment ? 'Estabelecimento' : 'Cliente'}</h1>
+                <h1 className="text-3xl font-bold text-blue-600 mb-2">Criar Conta de {isEstablishment ? 'Estabelecimento' : 'Cliente Fidelizado'}</h1>
                 <p className="text-md text-slate-600 mb-8">Preencha os dados para começar.</p>
                 
                 <form onSubmit={handleSubmit} className="w-full bg-white p-8 rounded-2xl shadow-lg text-left space-y-4">
@@ -70,7 +71,7 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ role, onBack }) => {
                         <input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full p-3 border border-gray-300 rounded-md" required />
                     </div>
 
-                    {isEstablishment && (
+                    {isEstablishment ? (
                         <>
                             <div>
                                 <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Telefone de Contato (para clientes favoritarem)</label>
@@ -93,6 +94,17 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ role, onBack }) => {
                                         {photo && <button type="button" onClick={() => setPhoto(null)} className="bg-red-100 py-1 px-2 border border-red-200 rounded-md text-sm text-red-700 hover:bg-red-200">Limpar Foto</button>}
                                     </div>
                                 </div>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div>
+                                <label htmlFor="customer-phone" className="block text-sm font-medium text-gray-700">Número de Telefone</label>
+                                <input id="customer-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1 w-full p-3 border border-gray-300 rounded-md" />
+                            </div>
+                             <div>
+                                <label htmlFor="customer-cep" className="block text-sm font-medium text-gray-700">CEP</label>
+                                <input id="customer-cep" type="text" value={cep} onChange={(e) => setCep(e.target.value)} className="mt-1 w-full p-3 border border-gray-300 rounded-md" />
                             </div>
                         </>
                     )}

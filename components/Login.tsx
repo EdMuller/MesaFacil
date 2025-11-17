@@ -3,9 +3,10 @@ import { useAppContext } from '../context/AppContext';
 
 interface LoginProps {
     onGoToRegister: () => void;
+    onBack: () => void;
 }
 
-const Login: React.FC<LoginProps> = ({ onGoToRegister }) => {
+const Login: React.FC<LoginProps> = ({ onGoToRegister, onBack }) => {
     const { login } = useAppContext();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -23,6 +24,9 @@ const Login: React.FC<LoginProps> = ({ onGoToRegister }) => {
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-gray-50">
+             <button onClick={onBack} className="absolute top-4 left-4 text-blue-600 hover:text-blue-800">
+                    &larr; Voltar
+             </button>
             <div className="w-full max-w-sm text-center">
                 <h1 className="text-4xl font-bold text-blue-600 mb-2">Mesa Ativa</h1>
                 <p className="text-lg text-slate-600 mb-8">Bem-vindo(a) de volta!</p>

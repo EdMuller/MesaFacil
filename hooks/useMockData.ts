@@ -53,7 +53,8 @@ export const useMockData = () => {
 
         setUsers(loadedUsers);
         // FIX: Reconstruct establishment object to avoid spread and ensure correct typing from parsed data.
-        setEstablishments(new Map(parsed.establishments?.map((e: Omit<Establishment, 'tables' | 'eventLog'> & { tables: [string, Table][], eventLog: EventLogItem[] }) => [e.id, {
+        // FIX: Simplified the type annotation for 'e' to 'any' to resolve errors where properties were not found on type 'unknown'.
+        setEstablishments(new Map(parsed.establishments?.map((e: any) => [e.id, {
             id: e.id,
             ownerId: e.ownerId,
             name: e.name,
@@ -135,14 +136,14 @@ export const useMockData = () => {
     return newUser;
   }, [users, establishments, currentUser]);
 
-  const registerCustomer = useCallback((name: string, email: string, password: string): User => {
+  const registerCustomer = useCallback((name: string, email: string, password: string, phone?: string, cep?: string): User => {
     if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
       throw new Error("Email já cadastrado.");
     }
     const newUserId = `user-${Date.now()}`;
     const newUser: User = { id: newUserId, email, password: simpleHash(password), role: Role.CUSTOMER, name, status: UserStatus.TESTING };
 
-    const newProfile: CustomerProfile = { userId: newUserId, favoritedEstablishmentIds: [] };
+    const newProfile: CustomerProfile = { userId: newUserId, favoritedEstablishmentIds: [], phone, cep };
 
     setUsers(prev => [...prev, newUser]);
     setCustomerProfiles(prev => new Map(prev).set(newUserId, newProfile));

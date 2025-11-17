@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { CallType, CallStatus, Establishment, Call } from '../types';
+import { CallType, CallStatus, Establishment, Call, SemaphoreStatus } from '../types';
 import { CALL_TYPE_INFO } from '../constants';
 import Header from './Header';
 
@@ -17,20 +17,12 @@ interface CustomerViewProps {
 }
 
 const CustomerView: React.FC<CustomerViewProps> = ({ establishment, tableNumber, onBack }) => {
-  const { addCall, cancelOldestCallByType } = useAppContext();
-  
-  const customerCalls = useMemo(() => {
-    const table = establishment.tables.get(tableNumber);
-    return table ? table.calls.filter(c => c.status !== CallStatus.ATTENDED && c.status !== CallStatus.CANCELED) : [];
-  }, [establishment.tables, tableNumber]);
 
-  const getPendingCalls = (type: CallType) => {
-    return customerCalls.filter(c => c.type === type && (c.status === CallStatus.SENT || c.status === CallStatus.VIEWED));
-  }
+  const backText = establishment.ownerId ? "Voltar aos Favoritos" : "Sair";
 
   return (
     <div className="min-h-screen bg-gray-100 pb-20">
-      <Header onBack={onBack} isEstablishment={false} establishmentOverride={establishment} backText="Voltar aos Favoritos" />
+      <Header onBack={onBack} isEstablishment={false} establishmentOverride={establishment} backText={backText} />
       <div className="p-4 md:p-6 max-w-2xl mx-auto">
         <div className="text-center mb-6">
             <p className="text-lg text-gray-600">Sua Mesa</p>
@@ -39,22 +31,19 @@ const CustomerView: React.FC<CustomerViewProps> = ({ establishment, tableNumber,
 
         <div className="grid grid-cols-1 gap-4">
             <CallButton 
-              type={CallType.WAITER} 
-              onCall={() => addCall(establishment.id, tableNumber, CallType.WAITER)} 
-              onCancel={() => cancelOldestCallByType(establishment.id, tableNumber, CallType.WAITER)}
-              pendingCalls={getPendingCalls(CallType.WAITER)} 
+              type={CallType.WAITER}
+              establishment={establishment}
+              tableNumber={tableNumber}
             />
             <CallButton 
-              type={CallType.MENU} 
-              onCall={() => addCall(establishment.id, tableNumber, CallType.MENU)} 
-              onCancel={() => cancelOldestCallByType(establishment.id, tableNumber, CallType.MENU)}
-              pendingCalls={getPendingCalls(CallType.MENU)} 
+              type={CallType.MENU}
+              establishment={establishment}
+              tableNumber={tableNumber}
             />
             <CallButton 
               type={CallType.BILL} 
-              onCall={() => addCall(establishment.id, tableNumber, CallType.BILL)} 
-              onCancel={() => cancelOldestCallByType(establishment.id, tableNumber, CallType.BILL)}
-              pendingCalls={getPendingCalls(CallType.BILL)} 
+              establishment={establishment}
+              tableNumber={tableNumber}
             />
         </div>
       </div>
@@ -64,67 +53,73 @@ const CustomerView: React.FC<CustomerViewProps> = ({ establishment, tableNumber,
 
 interface CallButtonProps {
     type: CallType;
-    onCall: () => void;
-    onCancel: () => void;
-    pendingCalls: Call[];
+    establishment: Establishment;
+    tableNumber: string;
 }
 
-const CallButton: React.FC<CallButtonProps> = ({ type, onCall, onCancel, pendingCalls }) => {
-    const selectedIcons: Record<CallType, React.ReactNode> = {
+const CallButton: React.FC<CallButtonProps> = ({ type, establishment, tableNumber }) => {
+    const { addCall, cancelOldestCallByType, getCallTypeSemaphoreStatus } = useAppContext();
+
+    const icons: Record<CallType, React.ReactNode> = {
         [CallType.WAITER]: <PersonIcon />,
         [CallType.MENU]: <MenuIcon />,
         [CallType.BILL]: <CreditCardIcon />,
     };
 
+    const table = establishment.tables.get(tableNumber);
+    const pendingCalls = useMemo(() => {
+        return table?.calls.filter(c => c.type === type && (c.status === CallStatus.SENT || c.status === CallStatus.VIEWED)) || [];
+    }, [table, type]);
+    
     const pendingCount = pendingCalls.length;
     const oldestCall = pendingCount > 0 ? pendingCalls.sort((a,b) => a.createdAt - b.createdAt)[0] : null;
+
+    const semaphoreStatus = getCallTypeSemaphoreStatus(table ?? {number: tableNumber, calls: []}, type, establishment.settings);
     
-    const [time, setTime] = useState(0);
+    const semaphoreClasses: Record<SemaphoreStatus, string> = {
+        [SemaphoreStatus.IDLE]: 'border-gray-200',
+        [SemaphoreStatus.GREEN]: 'border-green-500',
+        [SemaphoreStatus.YELLOW]: 'border-yellow-400',
+        [SemaphoreStatus.RED]: 'border-red-500',
+    };
 
-    useEffect(() => {
-        // FIX: Use ReturnType<typeof setInterval> for browser compatibility instead of NodeJS.Timeout.
-        let interval: ReturnType<typeof setInterval> | null = null;
-        if(oldestCall) {
-            setTime(Date.now() - oldestCall.createdAt);
-            interval = setInterval(() => {
-                setTime(Date.now() - oldestCall.createdAt);
-            }, 1000);
-        } else {
-            setTime(0);
-        }
-
-        return () => {
-            if(interval) clearInterval(interval);
-        };
-    }, [oldestCall]);
-
-    const formatTime = (ms: number) => {
-        const totalSeconds = Math.floor(ms / 1000);
-        const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-        const seconds = (totalSeconds % 60).toString().padStart(2, '0');
-        return `${minutes}:${seconds}`;
-    }
+    const receivedStatus = oldestCall?.status === CallStatus.VIEWED 
+        ? 'bg-green-200 text-green-800' 
+        : oldestCall?.status === CallStatus.SENT
+        ? 'bg-yellow-200 text-yellow-800'
+        : 'bg-gray-200 text-gray-500';
 
     return (
-        <div className="bg-white rounded-xl shadow-md border-2 border-gray-200">
+        <div className={`bg-white rounded-xl shadow-md border-2 ${semaphoreClasses[semaphoreStatus]}`}>
             <button 
-                onClick={onCall}
+                onClick={() => addCall(establishment.id, tableNumber, type)}
                 className="w-full flex items-center justify-center text-gray-800 font-bold py-4 rounded-t-lg hover:bg-gray-50 transition-colors duration-200 p-4"
+                aria-label={CALL_TYPE_INFO[type].verb}
             >
                 <div className="flex items-center gap-3 text-blue-600">
-                    {selectedIcons[type]}
+                    {icons[type]}
                     <span className="text-xl text-gray-800">{CALL_TYPE_INFO[type].verb}</span>
                 </div>
             </button>
             {pendingCount > 0 && (
-                <div className="mt-3 pt-3 border-t-2 border-blue-100 flex justify-between items-center bg-blue-50/50 p-3 rounded-b-lg">
-                    <div className="text-base text-blue-800">
-                        <p>Chamados pendentes: <span className="font-bold text-lg">{pendingCount}</span></p>
-                        <p>Aguardando há: <span className="font-mono font-bold text-lg">{formatTime(time)}</span></p>
+                <div className="pt-2 border-t-2 border-dashed flex justify-between items-stretch bg-gray-50/50 p-2 rounded-b-lg text-center">
+                    <div className={`w-1/3 py-2 rounded-md ${receivedStatus}`}>
+                        <p className="text-xs font-semibold">Status</p>
+                        <p className="font-bold text-sm">{oldestCall?.status === CallStatus.VIEWED ? 'Recebido' : 'Enviado'}</p>
                     </div>
-                    <button onClick={onCancel} className="bg-red-100 text-red-700 font-semibold text-sm px-3 py-1.5 rounded-md hover:bg-red-200 transition-colors">
-                        Cancelar
-                    </button>
+                     <div className="w-1/3 py-2">
+                        <p className="text-xs font-semibold text-gray-500">Qtde.</p>
+                        <p className="font-bold text-lg text-gray-800">{pendingCount}</p>
+                    </div>
+                     <div className="w-1/3 flex items-center justify-center">
+                         <button 
+                            onClick={() => cancelOldestCallByType(establishment.id, tableNumber, type)} 
+                            className="bg-red-100 text-red-700 font-semibold text-sm w-full h-full rounded-md hover:bg-red-200 transition-colors"
+                            aria-label={`Cancelar ${CALL_TYPE_INFO[type].label}`}
+                        >
+                            Cancelar
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

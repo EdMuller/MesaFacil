@@ -64,6 +64,8 @@ export interface User {
 export interface CustomerProfile {
   userId: string;
   favoritedEstablishmentIds: string[];
+  phone?: string;
+  cep?: string;
 }
 
 export type EventLogType = 'CALL_ATTENDED' | 'CALL_CANCELED' | 'TABLE_CLOSED';

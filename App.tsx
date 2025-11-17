@@ -11,45 +11,50 @@ type View = 'ROLE_SELECTION' | 'LOGIN' | 'REGISTER' | 'APP';
 
 const App: React.FC = () => {
   const { currentUser, users, logout } = useAppContext();
-  const [view, setView] = useState<View>('LOGIN');
+  const [view, setView] = useState<View>('ROLE_SELECTION');
   const [registrationRole, setRegistrationRole] = useState<Role | null>(null);
+  const [isGuestMode, setIsGuestMode] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
       setView('APP');
-    } else {
-       // If no users exist (besides admin), force registration. Otherwise, show login.
-      if (users.filter(u => u.role !== Role.ADMIN).length === 0) {
-        setView('ROLE_SELECTION');
-      } else {
-        setView('LOGIN');
-      }
+      setIsGuestMode(false);
+    } else if (!isGuestMode) {
+      // Always default to role selection if not logged in and not in guest mode.
+      setView('ROLE_SELECTION');
     }
-  }, [currentUser, users]);
+  }, [currentUser, isGuestMode]);
 
-  const handleSelectRole = (role: Role) => {
-    setRegistrationRole(role);
-    setView('REGISTER');
+  const handleSelectRole = (role: Role | 'GUEST') => {
+    if (role === 'GUEST') {
+        setIsGuestMode(true);
+    } else {
+        setRegistrationRole(role);
+        setView('REGISTER');
+    }
   };
-
-  const handleBackToLogin = () => {
-    setRegistrationRole(null);
-    setView('LOGIN');
-  }
   
   const handleGoToRegister = () => {
      logout(); // ensure no user is logged in
+     setIsGuestMode(false);
      setView('ROLE_SELECTION');
   }
 
   const renderContent = () => {
+    if (isGuestMode && !currentUser) {
+        return <CustomerHome isGuest={true} onExitGuestMode={() => {
+            setIsGuestMode(false);
+            setView('ROLE_SELECTION');
+        }} />
+    }
+
     switch (view) {
       case 'LOGIN':
-        return <Login onGoToRegister={handleGoToRegister} />;
+        return <Login onGoToRegister={handleGoToRegister} onBack={() => setView('ROLE_SELECTION')} />;
       case 'ROLE_SELECTION':
-        return <RoleSelectionScreen onSelectRole={handleSelectRole} />;
+        return <RoleSelectionScreen onSelectRole={handleSelectRole} onGoToLogin={() => setView('LOGIN')} />;
       case 'REGISTER':
-        return <RegisterScreen role={registrationRole!} onBack={handleBackToLogin} />;
+        return <RegisterScreen role={registrationRole!} onBack={() => setView('ROLE_SELECTION')} />;
       case 'APP':
         if (currentUser?.role === Role.CUSTOMER) {
           return <CustomerHome />;
@@ -60,9 +65,9 @@ const App: React.FC = () => {
         if (currentUser?.role === Role.ADMIN) {
           return <AdminDashboard />;
         }
-        return <Login onGoToRegister={handleGoToRegister} />; // Fallback
+        return <Login onGoToRegister={handleGoToRegister} onBack={() => setView('ROLE_SELECTION')} />; // Fallback
       default:
-        return <RoleSelectionScreen onSelectRole={handleSelectRole} />;
+        return <RoleSelectionScreen onSelectRole={handleSelectRole} onGoToLogin={() => setView('LOGIN')} />;
     }
   };
 
@@ -74,10 +79,11 @@ const App: React.FC = () => {
 };
 
 interface RoleSelectionScreenProps {
-  onSelectRole: (role: Role) => void;
+  onSelectRole: (role: Role | 'GUEST') => void;
+  onGoToLogin: () => void;
 }
 
-const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole }) => {
+const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole, onGoToLogin }) => {
   const { users } = useAppContext();
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4">
@@ -86,12 +92,18 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole 
         <p className="text-lg text-slate-600 mb-12">Gerenciamento de atendimentos simplificado.</p>
       </div>
       <div className="w-full max-w-sm space-y-4">
-        <h2 className="text-xl font-semibold text-center text-slate-700">Primeiro Acesso: Quem é você?</h2>
+        <h2 className="text-xl font-semibold text-center text-slate-700">Como você deseja acessar?</h2>
+        <button
+          onClick={() => onSelectRole('GUEST')}
+          className="w-full bg-white border-2 border-green-500 text-green-500 font-bold py-4 px-6 rounded-xl shadow-md hover:bg-green-50 transition-transform transform hover:-translate-y-1 duration-300 ease-in-out"
+        >
+          Cliente Eventual
+        </button>
         <button
           onClick={() => onSelectRole(Role.CUSTOMER)}
           className="w-full bg-white border-2 border-blue-500 text-blue-500 font-bold py-4 px-6 rounded-xl shadow-md hover:bg-blue-50 transition-transform transform hover:-translate-y-1 duration-300 ease-in-out"
         >
-          Sou Cliente
+          Cliente Fidelizado
         </button>
         <button
           onClick={() => onSelectRole(Role.ESTABLISHMENT)}
@@ -100,10 +112,10 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole 
           Sou Estabelecimento
         </button>
       </div>
-        {users.length > 0 && (
+        {users.filter(u => u.role !== Role.ADMIN).length > 0 && (
              <p className="mt-8">
                 Já tem uma conta?{' '}
-                <button onClick={() => window.location.reload()} className="font-medium text-blue-600 hover:text-blue-500">
+                <button onClick={onGoToLogin} className="font-medium text-blue-600 hover:text-blue-500">
                    Faça o login
                 </button>
             </p>

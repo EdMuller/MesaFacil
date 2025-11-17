@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Establishment, EventLogItem, CallType } from '../types';
+import { Establishment, EventLogItem, CallType, Table } from '../types';
 import { CALL_TYPE_INFO } from '../constants';
 
 type TimeFilter = 'day' | 'week' | 'month';
@@ -28,7 +28,8 @@ const StatisticsView: React.FC<{ establishment: Establishment }> = ({ establishm
         const totalTables = establishment.settings.totalTables || 1;
         const occupiedTables = establishment.tables.size;
         const occupationPercentage = ((occupiedTables / totalTables) * 100).toFixed(0);
-        const activeCalls = Array.from(establishment.tables.values()).flatMap(t => t.calls);
+        // FIX: Explicitly type 't' as Table to allow access to 'calls' property.
+        const activeCalls = Array.from(establishment.tables.values()).flatMap((t: Table) => t.calls);
         const activeCallsByType = activeCalls.reduce((acc, call) => {
             acc[call.type] = (acc[call.type] || 0) + 1;
             return acc;
@@ -57,7 +58,8 @@ const StatisticsView: React.FC<{ establishment: Establishment }> = ({ establishm
             const today = new Date();
             const dayOfWeek = today.getDay();
             const daysPassed = dayOfWeek === 0 ? 7 : dayOfWeek;
-            const totalCalls = Object.values(callsByType).reduce((sum, count) => sum + count, 0);
+            // FIX: Explicitly type 'sum' and 'count' as number to allow addition.
+            const totalCalls = Object.values(callsByType).reduce((sum: number, count: number) => sum + count, 0);
             average.customers = customersServed / daysPassed;
             average.calls = totalCalls / daysPassed;
         }
