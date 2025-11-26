@@ -11,8 +11,14 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onSave }) => {
 
     const handleSave = () => {
         try {
-            const safeUrl = url.trim();
-            const safeKey = key.trim();
+            // Remove espaços do início, fim e quebras de linha acidentais
+            const safeUrl = url.trim().replace(/\s/g, '');
+            const safeKey = key.trim().replace(/\s/g, '');
+
+            if (!safeUrl.startsWith('http')) {
+                alert("A URL deve começar com https://");
+                return;
+            }
 
             if (safeUrl && safeKey) {
                 localStorage.setItem('supabase_url', safeUrl);
@@ -32,7 +38,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onSave }) => {
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-8">
                 <h2 className="text-2xl font-bold mb-4 text-blue-600">Configuração do Servidor</h2>
                 <p className="text-gray-600 mb-6 text-sm">
-                    Para persistir os dados e permitir acesso multi-dispositivo, este aplicativo requer um projeto <strong>Supabase</strong>.
+                    Para persistir os dados e permitir acesso multi-dispositivo, insira as credenciais do seu projeto <strong>Supabase</strong>.
                 </p>
                 
                 <div className="space-y-4">
@@ -45,7 +51,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onSave }) => {
                             value={url} 
                             onChange={(e) => setUrl(e.target.value)} 
                             placeholder="https://xyz.supabase.co"
-                            className="mt-1 w-full p-3 border border-gray-300 rounded-md"
+                            className="mt-1 w-full p-3 border border-gray-300 rounded-md font-mono text-sm"
                         />
                     </div>
                     <div>
@@ -56,8 +62,8 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onSave }) => {
                             autoComplete="off" 
                             value={key} 
                             onChange={(e) => setKey(e.target.value)} 
-                            placeholder="eyJh..."
-                            className="mt-1 w-full p-3 border border-gray-300 rounded-md"
+                            placeholder="Cole sua chave anon public aqui"
+                            className="mt-1 w-full p-3 border border-gray-300 rounded-md font-mono text-sm"
                         />
                     </div>
                 </div>
@@ -70,7 +76,7 @@ const ConfigModal: React.FC<ConfigModalProps> = ({ onSave }) => {
                 </button>
                 
                 <p className="mt-4 text-xs text-center text-gray-400">
-                    Esses dados serão salvos apenas no seu navegador local.
+                    Esses dados ficam salvos apenas no seu navegador.
                 </p>
             </div>
         </div>

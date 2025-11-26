@@ -10,17 +10,17 @@ import { Role } from './types';
 type View = 'ROLE_SELECTION' | 'LOGIN' | 'REGISTER' | 'APP';
 
 const App: React.FC = () => {
-  const { currentUser, users, logout } = useAppContext();
+  const { currentUser, logout } = useAppContext();
   const [view, setView] = useState<View>('ROLE_SELECTION');
   const [registrationRole, setRegistrationRole] = useState<Role | null>(null);
   const [isGuestMode, setIsGuestMode] = useState(false);
 
   useEffect(() => {
+    // Detecção automática: Se já estiver logado, vai direto para o APP
     if (currentUser) {
       setView('APP');
       setIsGuestMode(false);
     } else if (!isGuestMode) {
-      // Always default to role selection if not logged in and not in guest mode.
       setView('ROLE_SELECTION');
     }
   }, [currentUser, isGuestMode]);
@@ -35,7 +35,7 @@ const App: React.FC = () => {
   };
   
   const handleGoToRegister = () => {
-     logout(); // ensure no user is logged in
+     logout(); 
      setIsGuestMode(false);
      setView('ROLE_SELECTION');
   }
@@ -65,14 +65,14 @@ const App: React.FC = () => {
         if (currentUser?.role === Role.ADMIN) {
           return <AdminDashboard />;
         }
-        return <Login onGoToRegister={handleGoToRegister} onBack={() => setView('ROLE_SELECTION')} />; // Fallback
+        return <Login onGoToRegister={handleGoToRegister} onBack={() => setView('ROLE_SELECTION')} />; 
       default:
         return <RoleSelectionScreen onSelectRole={handleSelectRole} onGoToLogin={() => setView('LOGIN')} />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
       {renderContent()}
     </div>
   );
@@ -84,45 +84,115 @@ interface RoleSelectionScreenProps {
 }
 
 const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole, onGoToLogin }) => {
-  const { users } = useAppContext();
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-4">
-      <div className="text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-blue-600 mb-2">Mesa Ativa</h1>
-        <p className="text-lg text-slate-600 mb-12">Gerenciamento de atendimentos simplificado.</p>
-      </div>
-      <div className="w-full max-w-sm space-y-4">
-        <h2 className="text-xl font-semibold text-center text-slate-700">Como você deseja acessar?</h2>
-        <button
-          onClick={() => onSelectRole('GUEST')}
-          className="w-full bg-white border-2 border-green-500 text-green-500 font-bold py-4 px-6 rounded-xl shadow-md hover:bg-green-50 transition-transform transform hover:-translate-y-1 duration-300 ease-in-out"
-        >
-          Cliente Eventual
-        </button>
-        <button
-          onClick={() => onSelectRole(Role.CUSTOMER)}
-          className="w-full bg-white border-2 border-blue-500 text-blue-500 font-bold py-4 px-6 rounded-xl shadow-md hover:bg-blue-50 transition-transform transform hover:-translate-y-1 duration-300 ease-in-out"
-        >
-          Cliente Fidelizado
-        </button>
-        <button
-          onClick={() => onSelectRole(Role.ESTABLISHMENT)}
-          className="w-full bg-blue-600 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:bg-blue-700 transition-transform transform hover:-translate-y-1 duration-300 ease-in-out"
-        >
-          Sou Estabelecimento
-        </button>
-      </div>
-        {users.filter(u => u.role !== Role.ADMIN).length > 0 && (
-             <p className="mt-8">
-                Já tem uma conta?{' '}
-                <button onClick={onGoToLogin} className="font-medium text-blue-600 hover:text-blue-500">
-                   Faça o login
+  const [showRegisterOptions, setShowRegisterOptions] = useState(false);
+  
+  const handleResetServer = () => {
+      if(confirm("Deseja redefinir as configurações de conexão com o Supabase?")) {
+          localStorage.removeItem('supabase_url');
+          localStorage.removeItem('supabase_key');
+          window.location.reload();
+      }
+  }
+
+  // Se o usuário clicou em "Cadastre-se", mostramos a tela de escolha de cadastro
+  if (showRegisterOptions) {
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen p-6 relative animate-fade-in">
+             <div className="w-full max-w-md space-y-6 text-center">
+                <h2 className="text-3xl font-bold text-blue-600 mb-6">Criar Conta</h2>
+                
+                <button
+                    onClick={() => onSelectRole(Role.CUSTOMER)}
+                    className="w-full bg-white border border-blue-200 text-blue-600 p-6 rounded-xl hover:bg-blue-50 transition-all shadow-sm hover:shadow-md text-left group"
+                >
+                    <div className="font-bold text-xl mb-1 group-hover:text-blue-700">Sou Cliente</div>
+                    <div className="text-sm text-gray-500">Salve seus Estabelecimentos Favoritos</div>
                 </button>
-            </p>
-        )}
-       <footer className="absolute bottom-4 text-center text-sm text-slate-500 px-4">
-        <p>Este é um protótipo para demonstração. A troca de papéis simula a interação entre cliente e estabelecimento.</p>
-      </footer>
+
+                <button
+                    onClick={() => onSelectRole(Role.ESTABLISHMENT)}
+                    className="w-full bg-blue-600 text-white p-6 rounded-xl hover:bg-blue-700 transition-all shadow-md hover:shadow-lg text-left"
+                >
+                    <div className="font-bold text-xl mb-1">Sou Estabelecimento</div>
+                    <div className="text-sm text-blue-100">Cadastro Obrigatório</div>
+                </button>
+
+                <button onClick={() => setShowRegisterOptions(false)} className="text-gray-500 hover:text-gray-700 underline mt-4">
+                    Voltar
+                </button>
+             </div>
+        </div>
+      );
+  }
+
+  // Tela Inicial Padrão
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen p-6 relative">
+      <div className="text-center mb-10">
+        <h1 className="text-5xl md:text-6xl font-extrabold text-blue-600 mb-2 tracking-tight">Mesa Ativa</h1>
+        <p className="text-xl text-slate-500 font-light">Agilidade no atendimento, conforto para você.</p>
+      </div>
+
+      <div className="w-full max-w-md space-y-8">
+        
+        {/* Bloco de Acesso Rápido - Cliente Eventual */}
+        <div className="bg-white p-6 rounded-2xl shadow-xl border border-blue-100 transform hover:scale-105 transition-transform duration-300">
+            <h2 className="text-lg font-semibold text-gray-700 mb-4 text-center">Para Clientes</h2>
+            <button
+            onClick={() => onSelectRole('GUEST')}
+            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xl font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-3"
+            >
+            <span>Acesso Rápido</span>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            </button>
+            {/* Texto removido conforme solicitado */}
+        </div>
+
+        {/* Divisor */}
+        <div className="relative flex py-2 items-center">
+            <div className="flex-grow border-t border-gray-300"></div>
+            <span className="flex-shrink-0 mx-4 text-gray-400 text-sm font-medium">Área de Membros</span>
+            <div className="flex-grow border-t border-gray-300"></div>
+        </div>
+
+        {/* Bloco de Membros (Login Direto) */}
+        <div className="grid grid-cols-1 gap-4">
+            <button
+            onClick={onGoToLogin} // Vai direto para Login
+            className="w-full bg-white border border-blue-200 text-blue-600 font-semibold py-4 px-6 rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+            >
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+             Sou Cliente Fidelizado
+            </button>
+            
+            <button
+            onClick={onGoToLogin} // Vai direto para Login
+            className="w-full bg-blue-600 text-white font-semibold py-4 px-6 rounded-xl hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2"
+            >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+            Sou Estabelecimento
+            </button>
+        </div>
+
+        {/* Rodapé de Cadastro */}
+        <div className="text-center mt-6 p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+            <p className="text-gray-600 mb-2">Ainda não se Cadastrou?</p>
+            <button 
+                onClick={() => setShowRegisterOptions(true)} 
+                className="font-bold text-blue-600 hover:text-blue-800 underline decoration-2 underline-offset-2 text-lg"
+            >
+                Cadastre-se
+            </button>
+        </div>
+
+      </div>
+
+      {/* Botão de Emergência */}
+      <div className="absolute bottom-4 right-4">
+          <button onClick={handleResetServer} className="text-xs text-red-300 hover:text-red-500 transition-colors">
+              Redefinir Configurações do Servidor
+          </button>
+      </div>
     </div>
   );
 };

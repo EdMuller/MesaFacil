@@ -41,7 +41,18 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ role, onBack }) => {
             
         } catch (err: any) {
             console.error(err);
-            setError(err.message || 'Falha no cadastro. Verifique os dados e tente novamente.');
+            // Tenta extrair uma mensagem legível, mesmo se o erro for um objeto complexo
+            let errorMessage = 'Falha no cadastro. Verifique os dados e tente novamente.';
+            
+            if (err instanceof Error) {
+                errorMessage = err.message;
+            } else if (typeof err === 'object' && err !== null) {
+                errorMessage = err.message || err.error_description || JSON.stringify(err);
+            } else if (typeof err === 'string') {
+                errorMessage = err;
+            }
+            
+            setError(errorMessage);
         } finally {
             setIsLoading(false);
         }
@@ -77,7 +88,11 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ role, onBack }) => {
                 <p className="text-md text-slate-600 mb-8">Preencha os dados para começar.</p>
                 
                 <form onSubmit={handleSubmit} className="w-full bg-white p-8 rounded-2xl shadow-lg text-left space-y-4" autoComplete="off">
-                    {error && <p className="bg-red-100 text-red-700 p-3 rounded-md text-center text-sm">{error}</p>}
+                     {/* Inputs Fantasmas para enganar o navegador e evitar autopreenchimento */}
+                    <input type="text" name="fakeusernameremembered" style={{display: 'none'}} />
+                    <input type="password" name="fakepasswordremembered" style={{display: 'none'}} />
+
+                    {error && <p className="bg-red-100 text-red-700 p-3 rounded-md text-center text-sm break-words">{error}</p>}
                     
                     <div>
                         <label htmlFor="name" className="block text-sm font-medium text-gray-700">{isEstablishment ? 'Nome do Estabelecimento' : 'Seu Nome'}</label>

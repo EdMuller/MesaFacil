@@ -11,7 +11,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const mockData = useMockData();
   
   // Inicializa o estado verificando o localStorage imediatamente
-  // Isso evita que showConfig comece como false e depois vire true, ou vice-versa
   const [showConfig, setShowConfig] = useState(() => {
       const url = localStorage.getItem('supabase_url');
       const key = localStorage.getItem('supabase_key');
@@ -19,15 +18,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const handleConfigSave = () => {
-      // Ao salvar, recarregamos a página para garantir que os hooks (useMockData)
-      // reinicializem com as novas credenciais limpas.
       window.location.reload();
   };
 
   return (
     <AppContext.Provider value={mockData}>
       {showConfig && <ConfigModal onSave={handleConfigSave} />}
-      {/* Só renderiza os filhos se a config estiver OK e os dados inicializados */}
       {!showConfig && mockData.isInitialized ? children : !showConfig ? <LoadingScreen /> : null}
     </AppContext.Provider>
   );
@@ -41,9 +37,42 @@ export const useAppContext = () => {
   return context;
 };
 
-const LoadingScreen = () => (
-    <div className="flex items-center justify-center min-h-screen flex-col gap-4">
-        <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-gray-500 font-medium">Conectando ao servidor...</p>
-    </div>
-)
+const LoadingScreen = () => {
+    const [showReset, setShowReset] = useState(false);
+
+    useEffect(() => {
+        // Se demorar mais de 3 segundos carregando, mostra opção de reset
+        const timer = setTimeout(() => setShowReset(true), 3000);
+        return () => clearTimeout(timer);
+    }, []);
+
+    const handleReset = () => {
+        if (window.confirm("Isso apagará as configurações de conexão salvas no navegador. Deseja continuar?")) {
+            localStorage.removeItem('supabase_url');
+            localStorage.removeItem('supabase_key');
+            window.location.reload();
+        }
+    };
+
+    return (
+        <div className="flex items-center justify-center min-h-screen flex-col gap-6 p-4 text-center">
+            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <div>
+                <p className="text-gray-500 font-medium mb-2">Conectando ao servidor...</p>
+                <p className="text-xs text-gray-400">Verificando sessão segura</p>
+            </div>
+
+            {showReset && (
+                <div className="mt-4 animate-fade-in">
+                    <p className="text-sm text-red-500 mb-2">Está demorando mais que o normal?</p>
+                    <button 
+                        onClick={handleReset}
+                        className="bg-white border border-red-300 text-red-600 px-4 py-2 rounded-md text-sm font-semibold hover:bg-red-50 transition-colors shadow-sm"
+                    >
+                        Redefinir Configurações do Servidor
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
