@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { Establishment, UserStatus } from '../types';
 import Header from './Header';
@@ -20,7 +20,6 @@ interface CustomerHomeProps {
 const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGuestMode }) => {
   const { 
       currentUser,
-      users,
       logout, 
       establishments, 
       currentCustomerProfile, 
@@ -28,6 +27,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       searchEstablishmentByPhone,
       favoriteEstablishment,
       unfavoriteEstablishment,
+      subscribeToEstablishmentCalls,
     } = useAppContext();
 
   const [selectedEstablishment, setSelectedEstablishment] = useState<Establishment | null>(null);
@@ -40,6 +40,16 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [isVipModalOpen, setVipModalOpen] = useState(false);
   const [isLoadingSearch, setIsLoadingSearch] = useState(false);
+
+  // Efeito para ativar o Realtime no estabelecimento selecionado
+  useEffect(() => {
+      if (selectedEstablishment) {
+          const unsubscribe = subscribeToEstablishmentCalls(selectedEstablishment.id);
+          return () => {
+              unsubscribe && unsubscribe();
+          };
+      }
+  }, [selectedEstablishment?.id, subscribeToEstablishmentCalls]);
 
   const favorited = useMemo(() => {
     if (!currentCustomerProfile) return [];
@@ -91,9 +101,6 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
 
   const handleSelectEstablishment = (establishment: Establishment) => {
     setError('');
-    // With Supabase, users list might not be populated with everyone. 
-    // We rely on RLS or specific queries. 
-    // Assuming establishment object is valid if we have it.
     setSelectedEstablishment(establishment);
     setIsEnteringTable(true);
   };
@@ -107,15 +114,12 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
         return;
       }
 
-      // Check if table is already in use in local state (snapshot)
-      // In real app, we might not want to block entry based on 'in use' if multiple people sit at table
-      // But preserving original logic:
       const table = selectedEstablishment?.tables.get(tableNumber);
       const hasActiveCalls = table?.calls.some(c => c.status === 'SENT' || c.status === 'VIEWED');
 
       if (hasActiveCalls) {
           setTableError("Esta mesa já tem chamados em andamento.");
-          // return; // Optional: block or allow
+          // return; 
       }
       
       const tableNum = parseInt(tableNumber, 10);
@@ -126,7 +130,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
            return;
       }
 
-      setIsEnteringTable(false); // This will hide the modal and show the CustomerView
+      setIsEnteringTable(false);
   }
 
   // If a table has been set, show the call view
@@ -139,7 +143,6 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                     setTableNumber('');
                     setTableError('');
                     if (isGuest && selectedEstablishment) {
-                        // For guest, go back to table entry for the same establishment
                         setIsEnteringTable(true); 
                     }
                 }}
@@ -232,7 +235,6 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
 
       </main>
 
-      {/* Enter table modal */}
       {isEnteringTable && selectedEstablishment && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 text-center">

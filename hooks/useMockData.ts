@@ -37,24 +37,20 @@ let supabase: any = null;
 
 const initSupabase = () => {
     try {
-        // Prioridade 1: Configuração fixa no código (constants.ts)
         let url = SUPABASE_CONFIG.url;
         let key = SUPABASE_CONFIG.anonKey;
 
-        // Prioridade 2: LocalStorage (caso não tenha fixo)
         if (!url || !key) {
             url = localStorage.getItem('supabase_url') || '';
             key = localStorage.getItem('supabase_key') || '';
         }
 
         if (url && key && !supabase) {
-            // Basic URL validation to prevent crashes
             if (!url.startsWith('http')) throw new Error("Invalid URL");
             supabase = createClient(url, key);
         }
     } catch (e) {
         console.error("Failed to init supabase", e);
-        // Clean bad config from local storage if strictly relying on it
         localStorage.removeItem('supabase_url');
         localStorage.removeItem('supabase_key');
         supabase = null;
@@ -62,12 +58,10 @@ const initSupabase = () => {
     return supabase;
 }
 
-// Sanitiza telefone para manter consistência
 const sanitizePhone = (phone: string) => {
     return phone.replace(/\D/g, '');
 }
 
-// Helper para tratar erros comuns
 const handleCommonErrors = (err: any) => {
     const msg = err.message || (typeof err === 'object' ? JSON.stringify(err) : "Erro desconhecido.");
     
@@ -80,12 +74,10 @@ const handleCommonErrors = (err: any) => {
     return msg;
 }
 
-// Função auxiliar para retry
 async function withRetry<T>(operation: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
     try {
         return await operation();
     } catch (err: any) {
-        // Se o erro for crítico de configuração, não adianta tentar de novo
         if (err.message && (err.message.includes("Invalid API key") || err.code === "PGRST301")) {
              throw new Error("Chave de API Inválida.");
         }
@@ -99,14 +91,12 @@ async function withRetry<T>(operation: () => Promise<T>, retries = 3, delay = 10
 }
 
 export const useMockData = () => {
-  // Core state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [users, setUsers] = useState<User[]>([]); 
   const [establishments, setEstablishments] = useState<Map<string, Establishment>>(new Map());
   const [customerProfiles, setCustomerProfiles] = useState<Map<string, CustomerProfile>>(new Map());
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // Initialize Client
   useEffect(() => {
       initSupabase();
       
@@ -117,7 +107,6 @@ export const useMockData = () => {
           }
 
           try {
-              // Timeout race to prevent hanging indefinitely
               const sessionPromise = supabase.auth.getSession();
               const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
 
@@ -129,7 +118,6 @@ export const useMockData = () => {
           } catch (error: any) {
               console.warn("Session check failed or timed out:", error);
               if (error.message?.includes("Invalid API key")) {
-                  // Only clear local storage if using local storage
                   if (!SUPABASE_CONFIG.url) {
                     localStorage.removeItem('supabase_url');
                     localStorage.removeItem('supabase_key');
@@ -159,24 +147,19 @@ export const useMockData = () => {
       }
   }, []);
 
-  // --- Helper Fetch Functions ---
-
   const fetchUserProfile = async (userId: string, email: string) => {
       if (!supabase) return;
       
-      // Retry fetching profile to handle network jitters
       try {
           const { data: profile, error } = await withRetry<any>(() => supabase!.from('profiles').select('*').eq('id', userId).single());
           
           if (error) {
-              // Handle missing profile (PGRST116) commonly caused by DB resets while logged in
               if (error.code === 'PGRST116') {
                   console.warn("Perfil não encontrado (PGRST116). Realizando logout para limpar sessão.");
                   await supabase.auth.signOut();
                   setCurrentUser(null);
                   return;
               }
-
               console.error('Error fetching profile:', JSON.stringify(error));
               return;
           }
@@ -191,17 +174,21 @@ export const useMockData = () => {
                   status: profile.status as UserStatus
               };
 
-              if (user.role === Role.ESTABLISHMENT) {
-                  const { data: est } = await supabase.from('establishments').select('*').eq('owner_id', userId).single();
-                  if (est) {
-                      user.establishmentId = est.id;
-                      await loadEstablishmentData(est.id);
-                      subscribeToEstablishmentCalls(est.id);
+              // Carregamento de dados adicionais com proteção contra falhas
+              try {
+                  if (user.role === Role.ESTABLISHMENT) {
+                      const { data: est } = await supabase.from('establishments').select('*').eq('owner_id', userId).single();
+                      if (est) {
+                          user.establishmentId = est.id;
+                          await loadEstablishmentData(est.id);
+                      }
+                  } 
+                  
+                  if (user.role === Role.CUSTOMER) {
+                      await loadCustomerData(userId);
                   }
-              } 
-              
-              if (user.role === Role.CUSTOMER) {
-                  await loadCustomerData(userId);
+              } catch (innerError) {
+                  console.error("Erro ao carregar dados complementares, mas logando usuário:", innerError);
               }
 
               setCurrentUser(user);
@@ -271,7 +258,6 @@ export const useMockData = () => {
         const { data: favs } = await supabase.from('customer_favorites').select('establishment_id').eq('user_id', userId);
         const favIds = favs?.map((f: any) => f.establishment_id) || [];
 
-        // Async load establishments to avoid blocking
         favIds.forEach(id => loadEstablishmentData(id));
 
         const profile: CustomerProfile = {
@@ -287,20 +273,20 @@ export const useMockData = () => {
       }
   };
 
-  // --- Realtime ---
-  const subscribeToEstablishmentCalls = (estId: string) => {
-      if (!supabase) return;
-      const channel = supabase.channel('public:calls')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', filter: `establishment_id=eq.${estId}` }, 
-        () => {
-            loadEstablishmentData(estId);
-        })
+  const subscribeToEstablishmentCalls = useCallback((estId: string) => {
+      if (!supabase) return () => {};
+      console.log("Subscribing to calls for establishment:", estId);
+      const channel = supabase.channel(`public:calls:${estId}`)
+        .on('postgres_changes', 
+            { event: '*', schema: 'public', table: 'calls', filter: `establishment_id=eq.${estId}` }, 
+            (payload: any) => {
+                console.log("Realtime update received!", payload);
+                loadEstablishmentData(estId);
+            }
+        )
         .subscribe();
       return () => { supabase?.removeChannel(channel); }
-  };
-
-
-  // --- Actions ---
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
       if (!supabase) throw new Error("Supabase não configurado");
@@ -336,8 +322,11 @@ export const useMockData = () => {
           setCurrentUser(null);
           return;
       }
-      await supabase.auth.signOut();
+      try {
+        await supabase.auth.signOut();
+      } catch(e) { console.error(e); }
       setCurrentUser(null);
+      setEstablishments(new Map());
   }, []);
 
   const registerEstablishment = useCallback(async (name: string, phone: string, email: string, password: string, photoUrl: string | null, phrase: string) => {
@@ -347,36 +336,28 @@ export const useMockData = () => {
       let userId = '';
 
       try {
-        // 1. Auth Creation
         const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
         
         if (authError) {
             handleCommonErrors(authError);
-            
-            // Check STRICTLY for user_already_exists error code or specific message
             const isAlreadyRegistered = 
                 authError.message?.toLowerCase().includes("already registered") || 
                 authError.code === 'user_already_exists';
 
             if (isAlreadyRegistered) {
-                // Tenta logar e ver se o perfil existe
                 const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-                
                 if (loginError) throw new Error("Este e-mail já está cadastrado, mas a senha informada está incorreta.");
-                
                 if (loginData.user) {
                     const { data: existingProfile } = await supabase.from('profiles').select('id').eq('id', loginData.user.id).single();
                     if (existingProfile) throw new Error("Esta conta já existe e está ativa. Por favor, faça login.");
-                    userId = loginData.user.id; // Zombie account recovery
+                    userId = loginData.user.id; 
                 }
             } else {
-                 // Return the actual error (e.g., "Password should be at least 6 characters")
                  throw new Error(authError.message);
             }
         } else {
             if (!authData.user) throw new Error("Falha ao criar usuário Auth.");
             userId = authData.user.id;
-
             if (!authData.session) {
                 const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
                 if (loginError || !loginData.session) {
@@ -387,7 +368,6 @@ export const useMockData = () => {
 
         await new Promise(resolve => setTimeout(resolve, 1500));
 
-        // 2. Insert Profile
         const { error: profileError } = await withRetry<any>(() => supabase!.from('profiles').upsert({
             id: userId,
             email,
@@ -396,14 +376,8 @@ export const useMockData = () => {
             status: UserStatus.TESTING
         }).select());
         
-        if (profileError) {
-             if (profileError.message.includes("row-level security")) {
-                 throw new Error("Erro de Permissão (RLS). Rode o script de Policies no Supabase.");
-             }
-             throw new Error(profileError.message);
-        }
+        if (profileError) throw new Error(profileError.message);
 
-        // 3. Insert Establishment
         const { data: estData, error: estError } = await withRetry<any>(() => supabase!.from('establishments').insert({
             owner_id: userId,
             name,
@@ -425,12 +399,10 @@ export const useMockData = () => {
 
   const registerCustomer = useCallback(async (name: string, email: string, password: string, phone?: string, cep?: string) => {
       if (!supabase) throw new Error("Erro de conexão: Supabase não iniciado.");
-
       let userId = '';
 
       try {
         const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
-        
         if (authError) {
             handleCommonErrors(authError);
              const isAlreadyRegistered = 
@@ -440,7 +412,6 @@ export const useMockData = () => {
             if (isAlreadyRegistered) {
                 const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
                 if (loginError) throw new Error("Este e-mail já está cadastrado, mas a senha informada está incorreta.");
-                
                 if (loginData.user) {
                      const { data: existingProfile } = await supabase.from('profiles').select('id').eq('id', loginData.user.id).single();
                      if (existingProfile) throw new Error("Esta conta já existe. Por favor, faça login.");
@@ -452,7 +423,6 @@ export const useMockData = () => {
         } else {
             if (!authData.user) throw new Error("Falha ao criar usuário Auth.");
             userId = authData.user.id;
-            
             if (!authData.session) {
                 const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
                 if (loginError || !loginData.session) {
@@ -471,12 +441,7 @@ export const useMockData = () => {
             status: UserStatus.TESTING
         }).select());
         
-        if (profileError) {
-             if (profileError.message.includes("row-level security")) {
-                 throw new Error("Erro de Permissão (RLS). Rode o script de Policies no Supabase.");
-             }
-             throw new Error(profileError.message);
-        }
+        if (profileError) throw new Error(profileError.message);
 
         if (phone || cep) {
             await withRetry(() => supabase!.from('customer_details').insert({
@@ -496,15 +461,25 @@ export const useMockData = () => {
 
   const addCall = useCallback(async (establishmentId: string, tableNumber: string, type: CallType) => {
       if (!supabase) return;
-      const { error } = await withRetry<any>(() => supabase!.from('calls').insert({
-          establishment_id: establishmentId,
-          table_number: tableNumber,
-          type,
-          status: CallStatus.SENT,
-          created_at_ts: Date.now()
-      }));
-      if (error) console.error("Failed to add call", error);
-      else loadEstablishmentData(establishmentId); 
+      try {
+        const { error } = await withRetry<any>(() => supabase!.from('calls').insert({
+            establishment_id: establishmentId,
+            table_number: tableNumber,
+            type,
+            status: CallStatus.SENT,
+            created_at_ts: Date.now()
+        }));
+        if (error) {
+            console.error("Failed to add call", error);
+            alert("Erro ao enviar chamado. Verifique sua conexão.");
+        } else {
+            // Optimistic update or fast reload
+            loadEstablishmentData(establishmentId); 
+        }
+      } catch (e) {
+          console.error(e);
+          alert("Erro ao enviar chamado.");
+      }
   }, []);
 
   const updateCallsByPredicate = useCallback(async (establishmentId: string, tableNumber: string, predicate: (call: Call) => boolean, update: (call: Call) => Partial<Call>) => {
@@ -593,11 +568,8 @@ export const useMockData = () => {
   const searchEstablishmentByPhone = async (phone: string) => {
       if (!supabase) return null;
       const cleanSearch = sanitizePhone(phone);
-      // Direct retry here
       const { data } = await withRetry<any>(() => supabase!.from('establishments').select('*').eq('phone', cleanSearch).maybeSingle());
       if (data) {
-          await loadEstablishmentData(data.id);
-          // Return the full object from map, ensuring we have latest calls
           return loadEstablishmentData(data.id);
       }
       return null;
@@ -605,17 +577,12 @@ export const useMockData = () => {
 
   const favoriteEstablishment = useCallback(async (userId: string, establishmentId: string) => {
       if (!supabase) return;
-      
       const { data: profile } = await supabase.from('customer_favorites').select('id').eq('user_id', userId);
       if (profile && profile.length >= 3) {
            throw new Error("Você atingiu o máximo de 3 estabelecimentos favoritos.");
       }
-
       const { error } = await withRetry<any>(() => supabase!.from('customer_favorites').insert({ user_id: userId, establishment_id: establishmentId }));
-      if (error) {
-          if (error.code === '23505') return; 
-          throw error;
-      }
+      if (error && error.code !== '23505') throw error;
       loadCustomerData(userId);
   }, []);
 
@@ -637,7 +604,6 @@ export const useMockData = () => {
       await logout();
   }, [currentUser, logout]);
 
-  // --- Logic Re-use ---
   const getTableSemaphoreStatus = useCallback((table: Table, settings: Settings): SemaphoreStatus => {
     const activeCalls = table.calls.filter(c => c.status !== CallStatus.ATTENDED && c.status !== CallStatus.CANCELED);
     if (activeCalls.length === 0) return SemaphoreStatus.IDLE;

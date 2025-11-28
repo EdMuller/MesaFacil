@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { Call, CallStatus, CallType, SemaphoreStatus, Table } from '../types';
 import Header from './Header';
@@ -14,11 +15,22 @@ import { APP_URL, CALL_TYPE_INFO } from '../constants';
 
 
 const EstablishmentDashboard: React.FC = () => {
-  const { currentEstablishment, closeTable, viewAllCallsForTable, getTableSemaphoreStatus, logout } = useAppContext();
+  const { currentEstablishment, closeTable, viewAllCallsForTable, getTableSemaphoreStatus, logout, subscribeToEstablishmentCalls } = useAppContext();
   const [isSettingsOpen, setSettingsOpen] = useState(false);
   const [isShareAppOpen, setShareAppOpen] = useState(false);
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [isStatisticsOpen, setStatisticsOpen] = useState(false);
+
+  // Efeito para ativar o Realtime assim que o componente montar
+  useEffect(() => {
+      if (currentEstablishment) {
+          console.log("Iniciando escuta em tempo real para:", currentEstablishment.name);
+          const unsubscribe = subscribeToEstablishmentCalls(currentEstablishment.id);
+          return () => {
+              unsubscribe && unsubscribe();
+          };
+      }
+  }, [currentEstablishment?.id, subscribeToEstablishmentCalls]);
 
   const tablesWithStatus = useMemo(() => {
     if (!currentEstablishment) return [];
@@ -40,7 +52,7 @@ const EstablishmentDashboard: React.FC = () => {
   }, [tablesWithStatus]);
 
   if (!currentEstablishment) {
-    return <div className="p-4">Carregando dados do estabelecimento...</div>
+    return <div className="p-4 flex items-center justify-center h-screen">Carregando dados do estabelecimento...</div>
   }
 
   return (
