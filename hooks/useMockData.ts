@@ -353,9 +353,9 @@ export const useMockData = () => {
         if (authError) {
             handleCommonErrors(authError);
             
+            // Check STRICTLY for user_already_exists error code or specific message
             const isAlreadyRegistered = 
                 authError.message?.toLowerCase().includes("already registered") || 
-                authError.status === 422 || 
                 authError.code === 'user_already_exists';
 
             if (isAlreadyRegistered) {
@@ -370,6 +370,7 @@ export const useMockData = () => {
                     userId = loginData.user.id; // Zombie account recovery
                 }
             } else {
+                 // Return the actual error (e.g., "Password should be at least 6 characters")
                  throw new Error(authError.message);
             }
         } else {
@@ -434,7 +435,6 @@ export const useMockData = () => {
             handleCommonErrors(authError);
              const isAlreadyRegistered = 
                 authError.message?.toLowerCase().includes("already registered") || 
-                authError.status === 422 || 
                 authError.code === 'user_already_exists';
 
             if (isAlreadyRegistered) {
