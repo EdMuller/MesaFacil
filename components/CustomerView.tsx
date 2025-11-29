@@ -26,7 +26,7 @@ const CustomerView: React.FC<CustomerViewProps> = ({ establishment: initialEstab
   // esta tela atualiza sozinha e os botões mudam de cor.
   const establishment = establishments.get(initialEstablishment.id) || initialEstablishment;
 
-  const backText = establishment.ownerId ? "Voltar aos Favoritos" : "Sair";
+  const backText = establishment.ownerId ? "Voltar" : "Sair";
 
   return (
     <div className="min-h-screen bg-gray-100 pb-20">
@@ -97,6 +97,8 @@ const CallButton: React.FC<CallButtonProps> = ({ type, establishment, tableNumbe
         ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
         : 'bg-gray-100 text-gray-500 border-gray-200';
 
+    const statusLabel = oldestCall?.status === CallStatus.VIEWED ? 'Visualizado' : 'Enviado';
+
     return (
         <div className={`bg-white rounded-xl shadow-md border-2 transition-all duration-300 ${semaphoreClasses[semaphoreStatus]}`}>
             <button 
@@ -113,7 +115,7 @@ const CallButton: React.FC<CallButtonProps> = ({ type, establishment, tableNumbe
                 <div className="pt-0 border-t-2 border-dashed border-gray-200 flex justify-between items-center bg-gray-50/80 p-3 rounded-b-lg">
                     <div className={`px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wide flex items-center gap-1 ${receivedStatus}`}>
                         <span className={`w-2 h-2 rounded-full ${oldestCall?.status === CallStatus.VIEWED ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
-                        {oldestCall?.status === CallStatus.VIEWED ? 'Visualizado' : 'Enviado'}
+                        {statusLabel}
                     </div>
                     
                     <div className="flex items-center gap-1 text-gray-600">

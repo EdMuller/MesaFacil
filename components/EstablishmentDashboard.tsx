@@ -45,14 +45,28 @@ const EstablishmentDashboard: React.FC = () => {
   }, [currentEstablishment, getTableSemaphoreStatus]);
 
   const semaphoreCounts = useMemo(() => {
+    if (!currentEstablishment) return {} as Record<SemaphoreStatus, number>;
     return tablesWithStatus.reduce((acc, table) => {
       acc[table.semaphore] = (acc[table.semaphore] || 0) + 1;
       return acc;
     }, {} as Record<SemaphoreStatus, number>);
-  }, [tablesWithStatus]);
+  }, [tablesWithStatus, currentEstablishment]);
 
   if (!currentEstablishment) {
-    return <div className="p-4 flex items-center justify-center h-screen">Carregando dados do estabelecimento...</div>
+    return (
+        <div className="flex flex-col items-center justify-center h-screen p-4 bg-gray-50">
+            <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-gray-600 font-medium mb-6">Carregando painel do estabelecimento...</p>
+            
+            {/* BOTÃO DE ESCAPE PARA O TRAVAMENTO */}
+            <button 
+                onClick={logout} 
+                className="px-6 py-2 bg-white border border-red-300 text-red-600 rounded-md hover:bg-red-50 font-bold shadow-sm"
+            >
+                Cancelar / Sair
+            </button>
+        </div>
+    );
   }
 
   return (
@@ -86,7 +100,7 @@ const EstablishmentDashboard: React.FC = () => {
         </div>
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg border-t border-gray-200 p-2 flex justify-around items-center">
+      <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg border-t border-gray-200 p-2 flex justify-around items-center z-20">
           <button onClick={() => setSettingsOpen(true)} className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-gray-600 hover:text-blue-600 transition-colors">
               <SettingsIcon /> <span className="text-xs sm:text-base">Configurações</span>
           </button>
