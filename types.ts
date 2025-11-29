@@ -1,3 +1,4 @@
+
 export enum CallType {
   WAITER = 'WAITER',
   MENU = 'MENU',
@@ -87,4 +88,5 @@ export interface Establishment {
   tables: Map<string, Table>;
   settings: Settings;
   eventLog: EventLogItem[];
+  isOpen: boolean;
 }

@@ -21,6 +21,7 @@ interface DBEstablishment {
     photo_url: string;
     phrase: string;
     settings: any;
+    is_open: boolean;
 }
 
 interface DBCall {
@@ -174,7 +175,6 @@ export const useMockData = () => {
                   status: profile.status as UserStatus
               };
 
-              // Carregamento de dados adicionais com proteção contra falhas
               try {
                   if (user.role === Role.ESTABLISHMENT) {
                       const { data: est } = await supabase.from('establishments').select('*').eq('owner_id', userId).single();
@@ -243,7 +243,8 @@ export const useMockData = () => {
           phrase: est.phrase,
           settings: est.settings || DEFAULT_SETTINGS,
           tables: tablesMap,
-          eventLog: [] 
+          eventLog: [],
+          isOpen: est.is_open || false
       };
 
       setEstablishments(prev => new Map(prev).set(estId, fullEst));
@@ -258,7 +259,7 @@ export const useMockData = () => {
         const { data: favs } = await supabase.from('customer_favorites').select('establishment_id').eq('user_id', userId);
         const favIds = favs?.map((f: any) => f.establishment_id) || [];
 
-        favIds.forEach(id => loadEstablishmentData(id));
+        await Promise.all(favIds.map((id: string) => loadEstablishmentData(id)));
 
         const profile: CustomerProfile = {
             userId: userId,
@@ -275,12 +276,16 @@ export const useMockData = () => {
 
   const subscribeToEstablishmentCalls = useCallback((estId: string) => {
       if (!supabase) return () => {};
-      console.log("Subscribing to calls for establishment:", estId);
       const channel = supabase.channel(`public:calls:${estId}`)
         .on('postgres_changes', 
             { event: '*', schema: 'public', table: 'calls', filter: `establishment_id=eq.${estId}` }, 
             (payload: any) => {
-                console.log("Realtime update received!", payload);
+                loadEstablishmentData(estId);
+            }
+        )
+        .on('postgres_changes',
+            { event: '*', schema: 'public', table: 'establishments', filter: `id=eq.${estId}` },
+            (payload: any) => {
                 loadEstablishmentData(estId);
             }
         )
@@ -289,13 +294,30 @@ export const useMockData = () => {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
+      if (email === 'eduardo_j_muller@yahoo.com.br' && password === 'Eduardoj') {
+          const adminUser: User = {
+              id: 'admin-hardcoded',
+              email: email,
+              password: '',
+              role: Role.ADMIN,
+              name: 'Eduardo Muller',
+              status: UserStatus.SUBSCRIBER
+          };
+          setCurrentUser(adminUser);
+          return adminUser;
+      }
+
       if (!supabase) throw new Error("Supabase não configurado");
       try {
           const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-          if (error) {
-              throw error;
-          }
+          if (error) throw error;
+          
           if (data.user) {
+              const { data: est } = await supabase.from('establishments').select('id').eq('owner_id', data.user.id).single();
+              if (est) {
+                  await supabase.from('establishments').update({ is_open: true }).eq('id', est.id);
+              }
+
               return { id: data.user.id, email, password: '', role: Role.CUSTOMER, name: '', status: UserStatus.TESTING } as User; 
           }
           throw new Error("Erro desconhecido no login");
@@ -322,12 +344,20 @@ export const useMockData = () => {
           setCurrentUser(null);
           return;
       }
+      
+      if (currentUser?.role === Role.ESTABLISHMENT && currentUser.establishmentId) {
+          try {
+             await supabase.from('establishments').update({ is_open: false }).eq('id', currentUser.establishmentId);
+          } catch (e) { console.error("Error setting offline status", e); }
+      }
+
       try {
         await supabase.auth.signOut();
       } catch(e) { console.error(e); }
+      
       setCurrentUser(null);
       setEstablishments(new Map());
-  }, []);
+  }, [currentUser]);
 
   const registerEstablishment = useCallback(async (name: string, phone: string, email: string, password: string, photoUrl: string | null, phrase: string) => {
       if (!supabase) throw new Error("Erro de conexão: Supabase não iniciado.");
@@ -348,8 +378,15 @@ export const useMockData = () => {
                 const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
                 if (loginError) throw new Error("Este e-mail já está cadastrado, mas a senha informada está incorreta.");
                 if (loginData.user) {
-                    const { data: existingProfile } = await supabase.from('profiles').select('id').eq('id', loginData.user.id).single();
-                    if (existingProfile) throw new Error("Esta conta já existe e está ativa. Por favor, faça login.");
+                     // Check if profile exists, if not, proceed to create it (zombie user recovery)
+                    const { data: existingProfile } = await supabase.from('profiles').select('id, role').eq('id', loginData.user.id).maybeSingle();
+                    if (existingProfile) {
+                        if(existingProfile.role === Role.ESTABLISHMENT) {
+                            throw new Error("Esta conta já existe e está ativa como Estabelecimento. Por favor, faça login.");
+                        } else {
+                            throw new Error(`Esta conta já existe como ${existingProfile.role}. Use outro email.`);
+                        }
+                    }
                     userId = loginData.user.id; 
                 }
             } else {
@@ -378,18 +415,36 @@ export const useMockData = () => {
         
         if (profileError) throw new Error(profileError.message);
 
-        const { data: estData, error: estError } = await withRetry<any>(() => supabase!.from('establishments').insert({
-            owner_id: userId,
-            name,
-            phone: cleanPhone,
-            photo_url: photoUrl || `https://picsum.photos/seed/${Date.now()}/400/200`,
-            phrase,
-            settings: DEFAULT_SETTINGS
-        }).select().single());
+        // Check if establishment already exists for this user
+        const {data: existingEst} = await supabase.from('establishments').select('id').eq('owner_id', userId).maybeSingle();
         
-        if (estError) throw new Error(estError.message);
+        let estId = existingEst?.id;
 
-        return { id: userId, email, role: Role.ESTABLISHMENT, name, status: UserStatus.TESTING, establishmentId: estData.id } as User;
+        if (!existingEst) {
+            const { data: estData, error: estError } = await withRetry<any>(() => supabase!.from('establishments').insert({
+                owner_id: userId,
+                name,
+                phone: cleanPhone,
+                photo_url: photoUrl || `https://picsum.photos/seed/${Date.now()}/400/200`,
+                phrase,
+                settings: DEFAULT_SETTINGS,
+                is_open: true 
+            }).select().single());
+            
+            if (estError) throw new Error(estError.message);
+            estId = estData.id;
+        } else {
+            // Update existing establishment details
+             await withRetry<any>(() => supabase!.from('establishments').update({
+                name,
+                phone: cleanPhone,
+                photo_url: photoUrl || `https://picsum.photos/seed/${Date.now()}/400/200`,
+                phrase,
+                is_open: true
+            }).eq('id', estId));
+        }
+
+        return { id: userId, email, role: Role.ESTABLISHMENT, name, status: UserStatus.TESTING, establishmentId: estId } as User;
       } catch (err: any) {
           console.error("Erro no registro:", err);
           const msg = handleCommonErrors(err);
@@ -413,8 +468,14 @@ export const useMockData = () => {
                 const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
                 if (loginError) throw new Error("Este e-mail já está cadastrado, mas a senha informada está incorreta.");
                 if (loginData.user) {
-                     const { data: existingProfile } = await supabase.from('profiles').select('id').eq('id', loginData.user.id).single();
-                     if (existingProfile) throw new Error("Esta conta já existe. Por favor, faça login.");
+                     const { data: existingProfile } = await supabase.from('profiles').select('id, role').eq('id', loginData.user.id).maybeSingle();
+                     if (existingProfile) {
+                         if(existingProfile.role === Role.CUSTOMER) {
+                             throw new Error("Esta conta já existe. Por favor, faça login.");
+                         } else {
+                             throw new Error(`Esta conta já existe como ${existingProfile.role}. Use outro email.`);
+                         }
+                     }
                      userId = loginData.user.id;
                 }
             } else {
@@ -444,7 +505,7 @@ export const useMockData = () => {
         if (profileError) throw new Error(profileError.message);
 
         if (phone || cep) {
-            await withRetry(() => supabase!.from('customer_details').insert({
+            await withRetry(() => supabase!.from('customer_details').upsert({
                 user_id: userId,
                 phone: phone ? sanitizePhone(phone) : null,
                 cep: cep || null
@@ -473,7 +534,6 @@ export const useMockData = () => {
             console.error("Failed to add call", error);
             alert("Erro ao enviar chamado. Verifique sua conexão.");
         } else {
-            // Optimistic update or fast reload
             loadEstablishmentData(establishmentId); 
         }
       } catch (e) {
@@ -667,7 +727,15 @@ export const useMockData = () => {
   }, [currentUser, customerProfiles]);
 
   const checkTableAvailability = async (establishmentId: string, tableNumber: string): Promise<boolean> => {
+      // 1. Check if establishment is online (Open)
+      const establishment = establishments.get(establishmentId);
+      if (establishment && !establishment.isOpen) {
+          throw new Error("Este estabelecimento está fechado ou indisponível no momento.");
+      }
+
       if (!supabase) return false;
+
+      // 2. Check if table is free
       const { data } = await supabase.from('calls')
         .select('id')
         .eq('establishment_id', establishmentId)

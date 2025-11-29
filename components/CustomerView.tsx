@@ -1,3 +1,4 @@
+
 import React, { useMemo } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { CallType, CallStatus, Establishment, SemaphoreStatus } from '../types';
@@ -16,7 +17,14 @@ interface CustomerViewProps {
     onBack: () => void;
 }
 
-const CustomerView: React.FC<CustomerViewProps> = ({ establishment, tableNumber, onBack }) => {
+const CustomerView: React.FC<CustomerViewProps> = ({ establishment: initialEstablishment, tableNumber, onBack }) => {
+  const { establishments } = useAppContext();
+  
+  // O PULO DO GATO:
+  // Em vez de usar o 'initialEstablishment' (que é estático), buscamos a versão atualizada
+  // diretamente do contexto global. Assim, quando o Realtime atualiza o contexto, 
+  // esta tela atualiza sozinha e os botões mudam de cor.
+  const establishment = establishments.get(initialEstablishment.id) || initialEstablishment;
 
   const backText = establishment.ownerId ? "Voltar aos Favoritos" : "Sair";
 
@@ -78,48 +86,48 @@ const CallButton: React.FC<CallButtonProps> = ({ type, establishment, tableNumbe
     
     const semaphoreClasses: Record<SemaphoreStatus, string> = {
         [SemaphoreStatus.IDLE]: 'border-gray-200',
-        [SemaphoreStatus.GREEN]: 'border-green-500',
-        [SemaphoreStatus.YELLOW]: 'border-yellow-400',
-        [SemaphoreStatus.RED]: 'border-red-500',
+        [SemaphoreStatus.GREEN]: 'border-green-500 bg-green-50 ring-2 ring-green-200',
+        [SemaphoreStatus.YELLOW]: 'border-yellow-400 bg-yellow-50 ring-2 ring-yellow-200',
+        [SemaphoreStatus.RED]: 'border-red-500 bg-red-50 ring-2 ring-red-200',
     };
 
     const receivedStatus = oldestCall?.status === CallStatus.VIEWED 
-        ? 'bg-green-200 text-green-800' 
+        ? 'bg-green-100 text-green-800 border-green-200' 
         : oldestCall?.status === CallStatus.SENT
-        ? 'bg-yellow-200 text-yellow-800'
-        : 'bg-gray-200 text-gray-500';
+        ? 'bg-yellow-100 text-yellow-800 border-yellow-200'
+        : 'bg-gray-100 text-gray-500 border-gray-200';
 
     return (
-        <div className={`bg-white rounded-xl shadow-md border-2 ${semaphoreClasses[semaphoreStatus]}`}>
+        <div className={`bg-white rounded-xl shadow-md border-2 transition-all duration-300 ${semaphoreClasses[semaphoreStatus]}`}>
             <button 
                 onClick={() => addCall(establishment.id, tableNumber, type)}
-                className="w-full flex items-center justify-center text-gray-800 font-bold py-4 rounded-t-lg hover:bg-gray-50 transition-colors duration-200 p-4"
+                className="w-full flex items-center justify-center text-gray-800 font-bold py-4 rounded-t-lg hover:bg-black hover:bg-opacity-5 transition-colors duration-200 p-4"
                 aria-label={CALL_TYPE_INFO[type].verb}
             >
-                <div className="flex items-center gap-3 text-blue-600">
-                    {icons[type]}
+                <div className="flex items-center gap-4 text-blue-600">
+                    <div className="scale-110">{icons[type]}</div>
                     <span className="text-xl text-gray-800">{CALL_TYPE_INFO[type].verb}</span>
                 </div>
             </button>
             {pendingCount > 0 && (
-                <div className="pt-2 border-t-2 border-dashed flex justify-between items-stretch bg-gray-50/50 p-2 rounded-b-lg text-center">
-                    <div className={`w-1/3 py-2 rounded-md ${receivedStatus}`}>
-                        <p className="text-xs font-semibold">Status</p>
-                        <p className="font-bold text-sm">{oldestCall?.status === CallStatus.VIEWED ? 'Recebido' : 'Enviado'}</p>
+                <div className="pt-0 border-t-2 border-dashed border-gray-200 flex justify-between items-center bg-gray-50/80 p-3 rounded-b-lg">
+                    <div className={`px-3 py-1 rounded-full border text-xs font-bold uppercase tracking-wide flex items-center gap-1 ${receivedStatus}`}>
+                        <span className={`w-2 h-2 rounded-full ${oldestCall?.status === CallStatus.VIEWED ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+                        {oldestCall?.status === CallStatus.VIEWED ? 'Visualizado' : 'Enviado'}
                     </div>
-                     <div className="w-1/3 py-2">
-                        <p className="text-xs font-semibold text-gray-500">Qtde.</p>
-                        <p className="font-bold text-lg text-gray-800">{pendingCount}</p>
+                    
+                    <div className="flex items-center gap-1 text-gray-600">
+                        <span className="text-xs font-bold uppercase">Chamados:</span>
+                        <span className="text-lg font-bold">{pendingCount}</span>
                     </div>
-                     <div className="w-1/3 flex items-center justify-center">
-                         <button 
-                            onClick={() => cancelOldestCallByType(establishment.id, tableNumber, type)} 
-                            className="bg-red-100 text-red-700 font-semibold text-sm w-full h-full rounded-md hover:bg-red-200 transition-colors"
-                            aria-label={`Cancelar ${CALL_TYPE_INFO[type].label}`}
-                        >
-                            Cancelar
-                        </button>
-                    </div>
+
+                    <button 
+                        onClick={() => cancelOldestCallByType(establishment.id, tableNumber, type)} 
+                        className="bg-white border border-red-200 text-red-600 font-bold text-xs px-3 py-1.5 rounded-md hover:bg-red-50 transition-colors shadow-sm"
+                        aria-label={`Cancelar ${CALL_TYPE_INFO[type].label}`}
+                    >
+                        Cancelar
+                    </button>
                 </div>
             )}
         </div>
