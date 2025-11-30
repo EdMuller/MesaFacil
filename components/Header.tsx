@@ -26,7 +26,7 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
   const renderTitle = () => {
     if (establishment) {
       return (
-        <div className="flex items-center gap-3 overflow-hidden">
+        <div className="flex items-center gap-2 md:gap-3 overflow-hidden justify-center w-full">
           {!imageError && establishment.photoUrl ? (
               <img 
                 src={establishment.photoUrl} 
@@ -51,8 +51,8 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
     }
 
     return (
-        <div className="flex items-center gap-2 whitespace-nowrap">
-            <div className="text-blue-600"><FoodClocheIcon /></div>
+        <div className="flex items-center justify-center gap-2 whitespace-nowrap w-full">
+            <div className="text-blue-600 flex-shrink-0"><FoodClocheIcon /></div>
             <h1 className="text-xl font-bold text-blue-600">Mesa Fácil</h1>
         </div>
     )
@@ -64,26 +64,32 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
 
   return (
     <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 md:h-20">
-            {/* Botão Voltar Evidente */}
-            <div className="flex-shrink-0 w-24">
+      <div className="max-w-7xl mx-auto px-4">
+        <div className="flex items-center justify-between h-16 md:h-20 gap-2">
+            
+            {/* Botão Voltar (Esquerda) - Largura dinâmica para não esmagar o logo */}
+            <div className="flex-shrink-0">
                  <button 
                     onClick={onBack} 
-                    className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-3 rounded-lg transition-colors text-sm border border-gray-300 shadow-sm"
+                    className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-3 rounded-lg transition-colors text-sm border border-gray-300 shadow-sm whitespace-nowrap"
                  >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                     </svg>
-                    {label}
+                    <span className="hidden sm:inline">{label}</span>
+                    <span className="sm:hidden">Voltar</span>
                 </button>
             </div>
          
-          <div className="flex-grow flex justify-center mx-2 overflow-hidden">
+          {/* Logo Central - Flex Grow para ocupar o máximo possível */}
+          <div className="flex-grow flex justify-center min-w-0">
             {renderTitle()}
           </div>
           
-          <div className="w-24 flex-shrink-0"> {/* Spacer para balancear o layout */} </div>
+          {/* Espaçador (Direita) - Oculto em mobile muito pequeno para dar espaço, visível em maiores */}
+          <div className="w-16 hidden sm:block flex-shrink-0"></div>
+          {/* Spacer pequeno para mobile para manter centralização aproximada */}
+          <div className="w-8 sm:hidden flex-shrink-0"></div>
         </div>
       </div>
     </header>

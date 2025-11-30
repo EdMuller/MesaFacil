@@ -66,8 +66,10 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       setIsLoadingSearch(true);
       
       try {
-        // Try to get from cache or async search
+        // Tenta obter do cache
         let establishment = getEstablishmentByPhone(phoneToSearch);
+        
+        // Se não achou no cache, busca no banco
         if (!establishment && searchEstablishmentByPhone) {
             // @ts-ignore
             establishment = await searchEstablishmentByPhone(phoneToSearch);
@@ -75,32 +77,33 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
         
         if (!establishment) {
             setError("Nenhum estabelecimento encontrado com este telefone.");
-            setIsLoadingSearch(false);
             return;
         }
         
+        // Se achou, prossegue (independente se está aberto ou fechado)
         if (isGuest) {
-            if(!establishment.isOpen) {
-                setError("Estabelecimento encontrado, mas está fechado no momento.");
-                setIsLoadingSearch(false);
-                return;
-            }
             handleSelectEstablishment(establishment);
         } else {
             try {
-            if (!currentUser) throw new Error("Usuário não logado.");
-            await favoriteEstablishment(currentUser!.id, establishment.id);
-            setPhoneToSearch('');
+                if (!currentUser) throw new Error("Usuário não logado.");
+                await favoriteEstablishment(currentUser!.id, establishment.id);
+                setPhoneToSearch('');
+                // Opcional: Avisar se adicionou um fechado
+                if(!establishment.isOpen) {
+                    setStatusMessage(`"${establishment.name}" adicionado, mas está fechado.`);
+                    setTimeout(() => setStatusMessage(''), 3000);
+                }
             } catch (err: any) {
-            if (err.message.includes("máximo 3")) {
-                setVipModalOpen(true);
-            } else {
-                setError(err.message);
-            }
+                if (err.message && err.message.includes("máximo 3")) {
+                    setVipModalOpen(true);
+                } else {
+                    setError(err.message || "Erro ao favoritar.");
+                }
             }
         }
-      } catch (err) {
-          setError("Erro ao buscar estabelecimento.");
+      } catch (err: any) {
+          console.error("Erro na busca:", err);
+          setError("Erro de conexão ao buscar. Tente novamente.");
       } finally {
           setIsLoadingSearch(false);
       }
@@ -173,7 +176,6 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
   }
 
   const headerAction = isGuest ? onExitGuestMode! : logout;
-  // Botão alterado para "Voltar" conforme pedido
   const backText = "Voltar"; 
 
   return (
@@ -190,14 +192,11 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
             </div>
         ) : (
             <div className="text-center mb-4">
-                {/* Fonte igualada à do Header (text-xl font-bold) */}
                 <h1 className="text-xl font-bold text-blue-600">Meus Favoritos</h1>
-                {/* Removido o subtítulo "Selecione um estabelecimento..." */}
             </div>
         )}
 
-
-        {/* Search form - Fontes reduzidas em 2 números (text-sm -> text-xs, etc) */}
+        {/* Search form */}
         <form onSubmit={handleSearch} className="mb-6 p-3 bg-white rounded-lg shadow-sm border border-gray-200">
             <h2 className="font-bold mb-2 text-xs text-gray-700">{isGuest ? 'Buscar pelo Telefone' : 'Adicionar novo favorito'}</h2>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -208,7 +207,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                     placeholder="Telefone..."
                     className="flex-grow p-1.5 text-xs border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                 />
-                <button disabled={isLoadingSearch} type="submit" className="bg-blue-600 text-white font-bold py-1.5 px-3 rounded-md hover:bg-blue-700 disabled:bg-blue-300 text-xs">
+                <button disabled={isLoadingSearch} type="submit" className="bg-blue-600 text-white font-bold py-1.5 px-3 rounded-md hover:bg-blue-700 disabled:bg-blue-300 text-xs transition-colors">
                     {isLoadingSearch ? '...' : (isGuest ? 'Buscar' : 'Adicionar')}
                 </button>
             </div>
@@ -231,7 +230,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                             className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md transition-all cursor-pointer"
                         >
                             <div className="flex gap-3">
-                                {/* Foto: Altura limitada (aprox 56px) */}
+                                {/* Foto */}
                                 <div className="flex-shrink-0">
                                     <img src={est.photoUrl} alt={est.name} className="w-14 h-14 rounded-lg object-cover bg-gray-200" />
                                 </div>
@@ -239,13 +238,11 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                                 {/* Conteúdo de Texto */}
                                 <div className="flex-grow overflow-hidden flex flex-col justify-between">
                                     <div>
-                                        {/* Nome: 1 Linha, Fonte menor */}
                                         <h3 className="text-sm font-bold text-blue-600 truncate leading-tight">{est.name}</h3>
-                                        {/* Frase: 1 Linha, Fonte menor */}
                                         <p className="text-xs text-gray-500 italic truncate leading-tight mt-0.5">"{est.phrase}"</p>
                                     </div>
                                     
-                                    {/* Linha de Status e Ações (Abaixo da frase) */}
+                                    {/* Linha de Status */}
                                     <div className="flex items-center justify-between mt-1.5">
                                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${est.isOpen ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                                             {est.isOpen ? 'Aberto' : 'Fechado'}
@@ -265,7 +262,6 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                                         </button>
                                     </div>
                                 </div>
-                                {/* Setinha removida */}
                             </div>
                         </div>
                     ))}
