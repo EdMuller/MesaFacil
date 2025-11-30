@@ -88,18 +88,22 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole,
   const { resetConfig } = useAppContext();
   const [showRegisterOptions, setShowRegisterOptions] = useState(false);
   
-  const handleResetServer = () => {
-      if(confirm("Deseja redefinir as configurações de conexão com o Supabase?")) {
-          resetConfig();
-      }
+  // Função para "Fechar" (Reiniciar a tela)
+  const handleClose = () => {
+      window.location.reload();
   }
 
   // Se o usuário clicou em "Cadastre-se", mostramos a tela de escolha de cadastro
   if (showRegisterOptions) {
       return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-6 relative animate-fade-in">
+        <div className="flex flex-col items-center justify-center min-h-screen p-6 relative animate-fade-in bg-white">
+             <div className="absolute top-4 right-4">
+                <button onClick={() => setShowRegisterOptions(false)} className="text-gray-400 hover:text-gray-600">
+                   &times; Fechar
+                </button>
+             </div>
              <div className="w-full max-w-md space-y-6 text-center">
-                <h2 className="text-3xl font-bold text-blue-600 mb-6">Criar Conta</h2>
+                <h2 className="text-2xl font-bold text-blue-600 mb-6">Criar Conta</h2>
                 
                 <button
                     onClick={() => onSelectRole(Role.CUSTOMER)}
@@ -117,7 +121,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole,
                     <div className="text-sm text-blue-100">Cadastro Obrigatório</div>
                 </button>
 
-                <button onClick={() => setShowRegisterOptions(false)} className="text-gray-500 hover:text-gray-700 underline mt-4">
+                <button onClick={() => setShowRegisterOptions(false)} className="text-gray-500 hover:text-gray-700 underline mt-4 text-sm">
                     Voltar
                 </button>
              </div>
@@ -127,58 +131,76 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole,
 
   // Tela Inicial Padrão
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-6 relative">
-      <div className="text-center mb-10">
-        <h1 className="text-5xl md:text-6xl font-extrabold text-blue-600 mb-2 tracking-tight">Mesa Ativa</h1>
-        <p className="text-xl text-slate-500 font-light">Agilidade no atendimento, conforto para você.</p>
+    <div className="flex flex-col items-center justify-center min-h-screen p-6 relative bg-gray-50">
+      
+      {/* Botão Fechar Discreto */}
+      <div className="absolute top-4 right-4">
+          <button onClick={handleClose} className="text-xs text-gray-300 hover:text-gray-500">
+              &#10005; Sair
+          </button>
       </div>
 
-      <div className="w-full max-w-md space-y-8">
+      <div className="text-center mb-10 mt-[-40px]">
+        {/* Título com tamanho ajustado para combinar com o botão Acesso Rápido (text-xl/2xl) */}
+        <h1 className="text-2xl md:text-3xl font-extrabold text-blue-600 mb-2 tracking-tight">Mesa Fácil</h1>
+        {/* Subtítulo reduzido 2 números (text-xs) */}
+        <p className="text-xs text-slate-500 font-light max-w-[200px] mx-auto leading-relaxed">
+            Agilidade no atendimento,<br/>conforto para Você.
+        </p>
+      </div>
+
+      <div className="w-full max-w-xs space-y-6">
         
         {/* Bloco de Acesso Rápido - Cliente Eventual */}
-        <div className="bg-white p-6 rounded-2xl shadow-xl border border-blue-100 transform hover:scale-105 transition-transform duration-300">
-            <h2 className="text-lg font-semibold text-gray-700 mb-4 text-center">Para Clientes</h2>
+        {/* Botão com gradiente e textos ajustados internamente */}
+        <div className="w-full">
             <button
             onClick={() => onSelectRole('GUEST')}
-            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xl font-bold py-4 px-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-3"
+            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col items-center justify-center py-3 px-4"
             >
-            <span>Acesso Rápido</span>
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                <div className="flex items-center gap-2 mb-1">
+                    {/* Fonte tamanho lg para igualar ao botão Cliente Fidelizado */}
+                    <span className="text-lg font-bold">Acesso Rápido</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                </div>
+                {/* Texto movido para baixo e reduzido (text-xs) */}
+                <span className="text-xs font-normal text-green-100 opacity-90">Para Clientes</span>
             </button>
         </div>
 
         {/* Divisor */}
         <div className="relative flex py-2 items-center">
             <div className="flex-grow border-t border-gray-300"></div>
-            <span className="flex-shrink-0 mx-4 text-gray-400 text-sm font-medium">Área de Membros</span>
+            <span className="flex-shrink-0 mx-4 text-gray-400 text-xs font-medium">Área de Membros</span>
             <div className="flex-grow border-t border-gray-300"></div>
         </div>
 
-        {/* Bloco de Membros (Login Direto) */}
-        <div className="grid grid-cols-1 gap-4">
+        {/* Bloco de Membros */}
+        <div className="grid grid-cols-1 gap-3">
+            {/* Botão Cliente Fidelizado - Cor alterada para Azul Sólido (igual Estabelecimento) */}
             <button
-            onClick={onGoToLogin} // Vai direto para Login
-            className="w-full bg-white border border-blue-200 text-blue-600 font-semibold py-4 px-6 rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2"
+            onClick={onGoToLogin}
+            className="w-full bg-blue-600 text-white font-bold py-4 px-6 rounded-xl hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2"
             >
              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-             Sou Cliente Fidelizado
+             <span className="text-lg">Sou Cliente Fidelizado</span>
             </button>
             
             <button
-            onClick={onGoToLogin} // Vai direto para Login
-            className="w-full bg-blue-600 text-white font-semibold py-4 px-6 rounded-xl hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2"
+            onClick={onGoToLogin}
+            className="w-full bg-blue-600 text-white font-bold py-4 px-6 rounded-xl hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2"
             >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
-            Sou Estabelecimento
+            <span className="text-lg">Sou Estabelecimento</span>
             </button>
         </div>
 
         {/* Rodapé de Cadastro */}
-        <div className="text-center mt-6 p-4 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-            <p className="text-gray-600 mb-2">Ainda não se Cadastrou?</p>
+        <div className="text-center mt-6">
+            <p className="text-gray-500 text-xs mb-1">Ainda não se Cadastrou?</p>
             <button 
                 onClick={() => setShowRegisterOptions(true)} 
-                className="font-bold text-blue-600 hover:text-blue-800 underline decoration-2 underline-offset-2 text-lg"
+                className="font-bold text-blue-600 hover:text-blue-800 underline decoration-2 underline-offset-2 text-sm"
             >
                 Cadastre-se
             </button>
@@ -186,12 +208,7 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole,
 
       </div>
 
-      {/* Botão de Emergência */}
-      <div className="absolute bottom-4 right-4">
-          <button onClick={handleResetServer} className="text-xs text-red-300 hover:text-red-500 transition-colors">
-              Redefinir Configurações do Servidor
-          </button>
-      </div>
+      {/* Botão de Redefinição Removido conforme solicitado */}
     </div>
   );
 };
