@@ -182,11 +182,11 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
        <main className="p-4 md:p-6 max-w-2xl mx-auto">
         
         {isGuest ? (
-            <div className="text-center mb-6 mt-[-10px]">
-                <h1 className="text-xl md:text-2xl font-bold text-blue-600 mb-1 tracking-tight">Mesa Fácil</h1>
-                <p className="text-xs text-slate-500 font-light max-w-[200px] mx-auto leading-relaxed">
-                    Acesso Eventual.<br/>Busque pelo telefone.
-                </p>
+            <div className="mb-6">
+                <div className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl shadow-lg py-3 px-4 flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    <span className="text-lg font-bold">Acesso Eventual</span>
+                </div>
             </div>
         ) : (
             <div className="text-center mb-4">
