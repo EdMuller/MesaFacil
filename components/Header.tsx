@@ -31,29 +31,29 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
               <img 
                 src={establishment.photoUrl} 
                 alt={establishment.name} 
-                className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shadow-sm border border-white flex-shrink-0"
+                className="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover shadow-sm border-2 border-white/30 flex-shrink-0"
                 onError={() => setImageError(true)}
               />
           ) : (
-              <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm font-bold border border-white flex-shrink-0">
+              <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-white/20 flex items-center justify-center text-white shadow-sm font-bold border border-white/30 flex-shrink-0 text-xs">
                   {establishment.name.substring(0, 2).toUpperCase()}
               </div>
           )}
-          <div className="text-left overflow-hidden min-w-0">
-            <h1 className="text-lg md:text-xl font-bold text-blue-800 truncate leading-tight">{establishment.name}</h1>
-            <p className="text-xs text-gray-500 italic hidden sm:block truncate">"{establishment.phrase}"</p>
+          <div className="text-left overflow-hidden min-w-0 text-white">
+            <h1 className="text-base md:text-lg font-bold truncate leading-tight">{establishment.name}</h1>
+            <p className="text-[10px] text-green-50 italic hidden sm:block truncate">"{establishment.phrase}"</p>
           </div>
         </div>
       );
     }
     if(currentUser?.role === 'ADMIN') {
-        return <h1 className="text-xl font-bold text-blue-600">Admin</h1>
+        return <h1 className="text-lg font-bold text-white">Admin</h1>
     }
 
     return (
-        <div className="flex items-center justify-center gap-2 whitespace-nowrap w-full">
-            <div className="text-blue-600 flex-shrink-0"><FoodClocheIcon /></div>
-            <h1 className="text-xl font-bold text-blue-600">Mesa Fácil</h1>
+        <div className="flex items-center justify-center gap-2 whitespace-nowrap w-full text-white">
+            <div className="flex-shrink-0 scale-90"><FoodClocheIcon /></div>
+            <h1 className="text-lg font-bold">Mesa Fácil</h1>
         </div>
     )
   }
@@ -63,15 +63,16 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
   const label = backText || defaultBackText;
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto px-4">
-        <div className="flex items-center justify-between h-16 md:h-20 gap-2">
+    <header className="bg-gradient-to-r from-green-500 to-emerald-600 shadow-md border-b border-green-600 sticky top-0 z-40 transition-all duration-300">
+      <div className="max-w-7xl mx-auto px-3">
+        {/* Altura reduzida para h-13 (aprox 52px) */}
+        <div className="flex items-center justify-between h-13 gap-2">
             
-            {/* Botão Voltar (Esquerda) - Largura dinâmica para não esmagar o logo */}
+            {/* Botão Voltar (Esquerda) */}
             <div className="flex-shrink-0">
                  <button 
                     onClick={onBack} 
-                    className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-3 rounded-lg transition-colors text-sm border border-gray-300 shadow-sm whitespace-nowrap"
+                    className="flex items-center gap-1 bg-white/10 hover:bg-white/20 text-white font-semibold py-1.5 px-3 rounded-lg transition-colors text-xs border border-white/20 shadow-sm whitespace-nowrap"
                  >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -81,14 +82,13 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
                 </button>
             </div>
          
-          {/* Logo Central - Flex Grow para ocupar o máximo possível */}
+          {/* Logo Central */}
           <div className="flex-grow flex justify-center min-w-0">
             {renderTitle()}
           </div>
           
-          {/* Espaçador (Direita) - Oculto em mobile muito pequeno para dar espaço, visível em maiores */}
-          <div className="w-16 hidden sm:block flex-shrink-0"></div>
-          {/* Spacer pequeno para mobile para manter centralização aproximada */}
+          {/* Espaçador (Direita) */}
+          <div className="w-14 hidden sm:block flex-shrink-0"></div>
           <div className="w-8 sm:hidden flex-shrink-0"></div>
         </div>
       </div>

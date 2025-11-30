@@ -35,14 +35,13 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
   const [isEnteringTable, setIsEnteringTable] = useState(false);
   const [phoneToSearch, setPhoneToSearch] = useState('');
   const [error, setError] = useState('');
-  const [statusMessage, setStatusMessage] = useState(''); // Mensagem temporária (ex: Estabelecimento Fechado)
+  const [statusMessage, setStatusMessage] = useState('');
   const [tableError, setTableError] = useState('');
   const [isShareAppOpen, setShareAppOpen] = useState(false);
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [isVipModalOpen, setVipModalOpen] = useState(false);
   const [isLoadingSearch, setIsLoadingSearch] = useState(false);
 
-  // Efeito para ativar o Realtime no estabelecimento selecionado
   useEffect(() => {
       if (selectedEstablishment) {
           const unsubscribe = subscribeToEstablishmentCalls(selectedEstablishment.id);
@@ -66,21 +65,17 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       setIsLoadingSearch(true);
       
       try {
-        // Tenta obter do cache
         let establishment = getEstablishmentByPhone(phoneToSearch);
-        
-        // Se não achou no cache, busca no banco
         if (!establishment && searchEstablishmentByPhone) {
             // @ts-ignore
             establishment = await searchEstablishmentByPhone(phoneToSearch);
         }
         
         if (!establishment) {
-            setError("Nenhum estabelecimento encontrado com este telefone.");
+            setError("Não encontrado.");
             return;
         }
         
-        // Se achou, prossegue (independente se está aberto ou fechado)
         if (isGuest) {
             handleSelectEstablishment(establishment);
         } else {
@@ -88,22 +83,21 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                 if (!currentUser) throw new Error("Usuário não logado.");
                 await favoriteEstablishment(currentUser!.id, establishment.id);
                 setPhoneToSearch('');
-                // Opcional: Avisar se adicionou um fechado
                 if(!establishment.isOpen) {
-                    setStatusMessage(`"${establishment.name}" adicionado, mas está fechado.`);
+                    setStatusMessage(`Adicionado (Fechado).`);
                     setTimeout(() => setStatusMessage(''), 3000);
                 }
             } catch (err: any) {
                 if (err.message && err.message.includes("máximo 3")) {
                     setVipModalOpen(true);
                 } else {
-                    setError(err.message || "Erro ao favoritar.");
+                    setError(err.message || "Erro.");
                 }
             }
         }
       } catch (err: any) {
           console.error("Erro na busca:", err);
-          setError("Erro de conexão ao buscar. Tente novamente.");
+          setError("Erro de conexão.");
       } finally {
           setIsLoadingSearch(false);
       }
@@ -114,9 +108,8 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
     setStatusMessage('');
 
     if (!establishment.isOpen) {
-        // Não abre a tela de mesa, apenas avisa
-        setStatusMessage(`"${establishment.name}" está fechado no momento.`);
-        setTimeout(() => setStatusMessage(''), 3000); // Limpa após 3 segundos
+        setStatusMessage(`"${establishment.name}" está fechado.`);
+        setTimeout(() => setStatusMessage(''), 3000);
         return;
     }
 
@@ -129,22 +122,19 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       setTableError('');
 
       if (!selectedEstablishment) return;
-
       if(!selectedEstablishment.isOpen) {
-          setTableError("O estabelecimento fechou. Não é possível entrar.");
+          setTableError("Estabelecimento fechou.");
           return;
       }
-
       if (!tableNumber.trim()) {
-        setTableError("Por favor, informe o número da mesa.");
+        setTableError("Informe a mesa.");
         return;
       }
 
       const table = selectedEstablishment?.tables.get(tableNumber);
       const hasActiveCalls = table?.calls.some(c => c.status === 'SENT' || c.status === 'VIEWED');
-
       if (hasActiveCalls) {
-          setTableError("Esta mesa já tem chamados em andamento.");
+          setTableError("Mesa em uso.");
           // return; 
       }
       
@@ -152,14 +142,13 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       const totalTables = selectedEstablishment?.settings?.totalTables || 20;
       
       if (isNaN(tableNum) || tableNum < 1 || tableNum > totalTables) {
-           setTableError("Mesa Inexistente. Verifique o número e tente novamente.");
+           setTableError("Mesa Inexistente.");
            return;
       }
 
       setIsEnteringTable(false);
   }
 
-  // If a table has been set, show the call view
   if (selectedEstablishment && tableNumber && !isEnteringTable) {
       return <CustomerView 
                 establishment={selectedEstablishment} 
@@ -179,101 +168,104 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
   const backText = "Voltar"; 
 
   return (
-    <div className="min-h-screen bg-gray-100 pb-20">
+    <div className="min-h-screen bg-gray-50 pb-16">
       <Header onBack={headerAction} backText={backText} establishmentOverride={null} />
-       <main className="p-4 md:p-6 max-w-2xl mx-auto">
+       <main className="p-2 max-w-lg mx-auto">
         
         {isGuest ? (
-            <div className="mb-6">
-                <div className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl shadow-lg py-3 px-4 flex items-center justify-center gap-2">
+            <div className="mb-3">
+                <div className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg shadow py-2 px-3 flex items-center justify-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     <span className="text-lg font-bold">Acesso Eventual</span>
                 </div>
             </div>
         ) : (
-            <div className="text-center mb-4">
-                <h1 className="text-xl font-bold text-blue-600">Meus Favoritos</h1>
+            <div className="text-center mb-2 mt-1">
+                <h1 className="text-lg font-bold text-blue-600">Meus Favoritos</h1>
             </div>
         )}
 
-        {/* Search form */}
-        <form onSubmit={handleSearch} className="mb-6 p-3 bg-white rounded-lg shadow-sm border border-gray-200">
-            <h2 className="font-bold mb-2 text-xs text-gray-700">{isGuest ? 'Buscar pelo Telefone' : 'Adicionar novo favorito'}</h2>
-            <div className="flex flex-col sm:flex-row gap-2">
+        {/* LISTA DE FAVORITOS (Vem primeiro agora) */}
+        {!isGuest && (
+            <div className="mb-3">
+                {favorited.length === 0 ? (
+                    <div className="bg-white rounded-lg border border-dashed border-gray-300 p-4 text-center">
+                        <p className="text-gray-400 text-xs">Lista de favoritos vazia.</p>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        {favorited.map(est => (
+                            <div 
+                                key={est.id} 
+                                onClick={() => handleSelectEstablishment(est)}
+                                className="bg-white rounded-lg shadow-sm border border-gray-200 p-2 hover:shadow-md transition-all cursor-pointer"
+                            >
+                                <div className="flex gap-2 items-center">
+                                    <img src={est.photoUrl} alt={est.name} className="w-14 h-14 rounded-lg object-cover bg-gray-200 flex-shrink-0" />
+
+                                    <div className="flex-grow overflow-hidden min-w-0">
+                                        <h3 className="text-sm font-bold text-blue-600 truncate leading-tight">{est.name}</h3>
+                                        <p className="text-[10px] text-gray-500 italic truncate leading-tight mt-0.5">"{est.phrase}"</p>
+                                        
+                                        <div className="flex items-center justify-between mt-1">
+                                            <span className={`text-[9px] px-1.5 py-px rounded font-bold uppercase tracking-wide ${est.isOpen ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                {est.isOpen ? 'Aberto' : 'Fechado'}
+                                            </span>
+
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (window.confirm(`Remover "${est.name}"?`)) {
+                                                        unfavoriteEstablishment(currentUser!.id, est.id);
+                                                    }
+                                                }}
+                                                className="text-gray-300 hover:text-red-500 p-1 -mr-1"
+                                            >
+                                                <TrashIcon />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* SEARCH FORM (Agora embaixo dos favoritos) */}
+        <form onSubmit={handleSearch} className="mb-2 p-2 bg-white rounded-lg shadow-sm border border-gray-200">
+            <h2 className="font-bold mb-1.5 text-[10px] uppercase text-gray-500 tracking-wider">
+                {isGuest ? 'Buscar Estabelecimento' : 'Adicionar Novo Favorito'}
+            </h2>
+            <div className="flex flex-row gap-2 items-center">
                 <input 
                     type="tel"
                     value={phoneToSearch}
                     onChange={(e) => setPhoneToSearch(e.target.value)}
-                    placeholder="Telefone..."
-                    className="flex-grow p-1.5 text-xs border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Telefone do local..."
+                    className="flex-grow w-0 p-2 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 />
-                <button disabled={isLoadingSearch} type="submit" className="bg-blue-600 text-white font-bold py-1.5 px-3 rounded-md hover:bg-blue-700 disabled:bg-blue-300 text-xs transition-colors">
-                    {isLoadingSearch ? '...' : (isGuest ? 'Buscar' : 'Adicionar')}
+                <button 
+                    disabled={isLoadingSearch} 
+                    type="submit" 
+                    className="flex-shrink-0 bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-blue-300 text-xs whitespace-nowrap"
+                >
+                    {isLoadingSearch ? '...' : (isGuest ? 'Entrar' : 'Adicionar')}
                 </button>
             </div>
-            {error && <p className="text-red-500 text-xs mt-2 text-center">{error}</p>}
-            {statusMessage && <p className="text-red-500 text-xs font-bold mt-2 text-center bg-red-50 p-2 rounded animate-pulse">{statusMessage}</p>}
+            {error && <p className="text-red-500 text-xs mt-1 text-center">{error}</p>}
+            {statusMessage && <p className="text-blue-600 text-xs font-bold mt-1 text-center animate-pulse">{statusMessage}</p>}
         </form>
-        
-        {/* Favorited list */}
+
+        {/* VIP BANNER (Compacto) */}
         {!isGuest && (
-            <>
-            {favorited.length === 0 ? (
-                <p className="text-center text-gray-400 py-8 text-xs">Você ainda não tem favoritos.</p>
-            ) : (
-                <div className="space-y-3">
-                    {favorited.map(est => (
-                        // Card Principal
-                        <div 
-                            key={est.id} 
-                            onClick={() => handleSelectEstablishment(est)}
-                            className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md transition-all cursor-pointer"
-                        >
-                            <div className="flex gap-3">
-                                {/* Foto */}
-                                <div className="flex-shrink-0">
-                                    <img src={est.photoUrl} alt={est.name} className="w-14 h-14 rounded-lg object-cover bg-gray-200" />
-                                </div>
-
-                                {/* Conteúdo de Texto */}
-                                <div className="flex-grow overflow-hidden flex flex-col justify-between">
-                                    <div>
-                                        <h3 className="text-sm font-bold text-blue-600 truncate leading-tight">{est.name}</h3>
-                                        <p className="text-xs text-gray-500 italic truncate leading-tight mt-0.5">"{est.phrase}"</p>
-                                    </div>
-                                    
-                                    {/* Linha de Status */}
-                                    <div className="flex items-center justify-between mt-1.5">
-                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${est.isOpen ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                                            {est.isOpen ? 'Aberto' : 'Fechado'}
-                                        </span>
-
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (window.confirm(`Remover "${est.name}"?`)) {
-                                                    unfavoriteEstablishment(currentUser!.id, est.id);
-                                                }
-                                            }}
-                                            className="text-gray-300 hover:text-red-500 p-1"
-                                            aria-label="Remover"
-                                        >
-                                            <TrashIcon />
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-             <div className="my-8 text-center bg-blue-50 p-4 rounded-lg border border-blue-100">
-                <p className="text-xs text-gray-600 mb-1">Quer ter mais favoritos?</p>
-                <button onClick={() => setVipModalOpen(true)} className="font-bold text-lg text-blue-600 hover:text-blue-800 transition-colors">
+             <div className="mt-2 text-center bg-blue-50 py-2 px-3 rounded-lg border border-blue-100 flex items-center justify-between">
+                <span className="text-[10px] text-gray-600">Quer mais favoritos?</span>
+                <button onClick={() => setVipModalOpen(true)} className="text-xs font-bold text-blue-600 hover:text-blue-800 underline">
                    Seja VIP
                 </button>
             </div>
-            </>
         )}
 
       </main>
@@ -290,7 +282,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                           type="number"
                           value={tableNumber}
                           onChange={(e) => setTableNumber(e.target.value)}
-                          className="w-full text-center text-3xl font-bold p-3 border-2 border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-800"
+                          className="w-full text-center text-3xl font-bold p-3 border-2 border-gray-200 rounded-lg focus:ring-green-500 focus:border-green-500 text-gray-800"
                           autoFocus
                           required
                       />
@@ -302,7 +294,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                         </button>
                         <button 
                             type="submit" 
-                            className="flex-1 bg-blue-600 text-white font-bold py-2 rounded-md text-sm hover:bg-blue-700 shadow-md"
+                            className="flex-1 bg-green-600 text-white font-bold py-2 rounded-md text-sm hover:bg-green-700 shadow-md"
                         >
                             Entrar
                         </button>
@@ -314,12 +306,12 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       
       {!isGuest && (
         <>
-            <div className="fixed bottom-0 left-0 right-0 bg-white shadow-[0_-2px_10px_rgba(0,0,0,0.05)] border-t border-gray-100 p-2 flex justify-between px-8 items-center z-10">
+            <div className="fixed bottom-0 left-0 right-0 bg-white shadow-[0_-2px_10px_rgba(0,0,0,0.05)] border-t border-gray-100 p-2 flex justify-between px-8 items-center z-10 h-12">
               <button onClick={() => setShareAppOpen(true)} className="flex flex-col items-center text-gray-400 hover:text-blue-600 transition-colors">
-                  <ShareIcon /> <span className="text-[10px] mt-0.5">Share</span>
+                  <ShareIcon /> <span className="text-[9px] mt-0.5">Share</span>
               </button>
               <button onClick={() => setProfileOpen(true)} className="flex flex-col items-center text-gray-400 hover:text-blue-600 transition-colors">
-                  <UserIcon /> <span className="text-[10px] mt-0.5">Perfil</span>
+                  <UserIcon /> <span className="text-[9px] mt-0.5">Perfil</span>
               </button>
             </div>
             <ShareModal isOpen={isShareAppOpen} onClose={() => setShareAppOpen(false)} title="Compartilhar" text="" url={APP_URL} />
