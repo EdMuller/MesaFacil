@@ -26,20 +26,20 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
   const renderTitle = () => {
     if (establishment) {
       return (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 overflow-hidden">
           {!imageError && establishment.photoUrl ? (
               <img 
                 src={establishment.photoUrl} 
                 alt={establishment.name} 
-                className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shadow-sm border border-white"
+                className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shadow-sm border border-white flex-shrink-0"
                 onError={() => setImageError(true)}
               />
           ) : (
-              <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm font-bold border border-white">
+              <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shadow-sm font-bold border border-white flex-shrink-0">
                   {establishment.name.substring(0, 2).toUpperCase()}
               </div>
           )}
-          <div className="text-left overflow-hidden">
+          <div className="text-left overflow-hidden min-w-0">
             <h1 className="text-lg md:text-xl font-bold text-blue-800 truncate leading-tight">{establishment.name}</h1>
             <p className="text-xs text-gray-500 italic hidden sm:block truncate">"{establishment.phrase}"</p>
           </div>
@@ -51,14 +51,15 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
     }
 
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 whitespace-nowrap">
             <div className="text-blue-600"><FoodClocheIcon /></div>
             <h1 className="text-xl font-bold text-blue-600">Mesa Fácil</h1>
         </div>
     )
   }
 
-  const defaultBackText = isEstablishment ? 'Sair' : 'Sair';
+  // Lógica padrão alterada para "Voltar" conforme solicitado
+  const defaultBackText = 'Voltar'; 
   const label = backText || defaultBackText;
 
   return (
@@ -78,11 +79,11 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
                 </button>
             </div>
          
-          <div className="flex-grow flex justify-center mx-2">
+          <div className="flex-grow flex justify-center mx-2 overflow-hidden">
             {renderTitle()}
           </div>
           
-          <div className="w-24"> {/* Spacer para balancear o layout */} </div>
+          <div className="w-24 flex-shrink-0"> {/* Spacer para balancear o layout */} </div>
         </div>
       </div>
     </header>

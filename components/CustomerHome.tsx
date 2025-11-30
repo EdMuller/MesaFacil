@@ -35,6 +35,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
   const [isEnteringTable, setIsEnteringTable] = useState(false);
   const [phoneToSearch, setPhoneToSearch] = useState('');
   const [error, setError] = useState('');
+  const [statusMessage, setStatusMessage] = useState(''); // Mensagem temporária (ex: Estabelecimento Fechado)
   const [tableError, setTableError] = useState('');
   const [isShareAppOpen, setShareAppOpen] = useState(false);
   const [isProfileOpen, setProfileOpen] = useState(false);
@@ -61,6 +62,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
   const handleSearch = async (e: React.FormEvent) => {
       e.preventDefault();
       setError('');
+      setStatusMessage('');
       setIsLoadingSearch(true);
       
       try {
@@ -106,6 +108,15 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
 
   const handleSelectEstablishment = (establishment: Establishment) => {
     setError('');
+    setStatusMessage('');
+
+    if (!establishment.isOpen) {
+        // Não abre a tela de mesa, apenas avisa
+        setStatusMessage(`"${establishment.name}" está fechado no momento.`);
+        setTimeout(() => setStatusMessage(''), 3000); // Limpa após 3 segundos
+        return;
+    }
+
     setSelectedEstablishment(establishment);
     setIsEnteringTable(true);
   };
@@ -162,7 +173,8 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
   }
 
   const headerAction = isGuest ? onExitGuestMode! : logout;
-  const backText = isGuest ? "Voltar" : "Sair (Logout)";
+  // Botão alterado para "Voltar" conforme pedido
+  const backText = "Voltar"; 
 
   return (
     <div className="min-h-screen bg-gray-100 pb-20">
@@ -170,84 +182,99 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
        <main className="p-4 md:p-6 max-w-2xl mx-auto">
         
         {isGuest ? (
-            <div className="text-center mb-10 mt-[-20px]">
-                {/* Estilo Igualado à tela inicial */}
-                <h1 className="text-2xl md:text-3xl font-extrabold text-blue-600 mb-2 tracking-tight">Mesa Fácil</h1>
+            <div className="text-center mb-6 mt-[-10px]">
+                <h1 className="text-xl md:text-2xl font-bold text-blue-600 mb-1 tracking-tight">Mesa Fácil</h1>
                 <p className="text-xs text-slate-500 font-light max-w-[200px] mx-auto leading-relaxed">
                     Acesso Eventual.<br/>Busque pelo telefone.
                 </p>
             </div>
         ) : (
-            <div className="text-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-800">Meus Favoritos</h1>
-                <p className="text-gray-600">Selecione um estabelecimento para começar.</p>
+            <div className="text-center mb-4">
+                {/* Fonte igualada à do Header (text-xl font-bold) */}
+                <h1 className="text-xl font-bold text-blue-600">Meus Favoritos</h1>
+                {/* Removido o subtítulo "Selecione um estabelecimento..." */}
             </div>
         )}
 
 
-        {/* Add new/search form */}
-        <form onSubmit={handleSearch} className="mb-8 p-4 bg-white rounded-lg shadow">
-            <h2 className="font-bold mb-2">{isGuest ? 'Buscar pelo Telefone' : 'Adicionar novo favorito'}</h2>
+        {/* Search form - Fontes reduzidas em 2 números (text-sm -> text-xs, etc) */}
+        <form onSubmit={handleSearch} className="mb-6 p-3 bg-white rounded-lg shadow-sm border border-gray-200">
+            <h2 className="font-bold mb-2 text-xs text-gray-700">{isGuest ? 'Buscar pelo Telefone' : 'Adicionar novo favorito'}</h2>
             <div className="flex flex-col sm:flex-row gap-2">
                 <input 
                     type="tel"
                     value={phoneToSearch}
                     onChange={(e) => setPhoneToSearch(e.target.value)}
-                    placeholder="Telefone do estabelecimento"
-                    className="flex-grow p-2 border border-gray-300 rounded-md"
+                    placeholder="Telefone..."
+                    className="flex-grow p-1.5 text-xs border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
                 />
-                <button disabled={isLoadingSearch} type="submit" className="bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-blue-300">
-                    {isLoadingSearch ? 'Buscando...' : (isGuest ? 'Buscar' : 'Adicionar')}
+                <button disabled={isLoadingSearch} type="submit" className="bg-blue-600 text-white font-bold py-1.5 px-3 rounded-md hover:bg-blue-700 disabled:bg-blue-300 text-xs">
+                    {isLoadingSearch ? '...' : (isGuest ? 'Buscar' : 'Adicionar')}
                 </button>
             </div>
-            {error && <p className="text-red-500 text-sm mt-2 text-center">{error}</p>}
+            {error && <p className="text-red-500 text-xs mt-2 text-center">{error}</p>}
+            {statusMessage && <p className="text-red-500 text-xs font-bold mt-2 text-center bg-red-50 p-2 rounded animate-pulse">{statusMessage}</p>}
         </form>
         
-        {/* Favorited list (only for logged-in users) */}
+        {/* Favorited list */}
         {!isGuest && (
             <>
             {favorited.length === 0 ? (
-                <p className="text-center text-gray-500 py-8">Você ainda não tem favoritos.</p>
+                <p className="text-center text-gray-400 py-8 text-xs">Você ainda não tem favoritos.</p>
             ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                     {favorited.map(est => (
-                        <div key={est.id} className="bg-white rounded-xl shadow-md p-4 flex items-center justify-between hover:shadow-lg transition-shadow">
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation(); // prevent select establishment
-                                        if (window.confirm(`Tem certeza que deseja remover "${est.name}" dos seus favoritos?`)) {
-                                            unfavoriteEstablishment(currentUser!.id, est.id);
-                                        }
-                                    }}
-                                    className="p-2 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-100"
-                                    aria-label={`Remover ${est.name} dos favoritos`}
-                                >
-                                    <TrashIcon />
-                                </button>
-                                <div onClick={() => handleSelectEstablishment(est)} className="flex items-center gap-4 cursor-pointer">
-                                    <div className="relative">
-                                        <img src={est.photoUrl} alt={est.name} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
-                                        {/* Offline indicator for favorites */}
-                                        <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${est.isOpen ? 'bg-green-500' : 'bg-gray-400'}`} title={est.isOpen ? "Online" : "Fechado"}></div>
-                                    </div>
+                        // Card Principal
+                        <div 
+                            key={est.id} 
+                            onClick={() => handleSelectEstablishment(est)}
+                            className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 hover:shadow-md transition-all cursor-pointer"
+                        >
+                            <div className="flex gap-3">
+                                {/* Foto: Altura limitada (aprox 56px) */}
+                                <div className="flex-shrink-0">
+                                    <img src={est.photoUrl} alt={est.name} className="w-14 h-14 rounded-lg object-cover bg-gray-200" />
+                                </div>
+
+                                {/* Conteúdo de Texto */}
+                                <div className="flex-grow overflow-hidden flex flex-col justify-between">
                                     <div>
-                                        <h3 className="text-xl font-bold text-blue-600">{est.name}</h3>
-                                        <p className="text-sm text-gray-500 italic">"{est.phrase}"</p>
-                                        {!est.isOpen && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full font-bold">FECHADO</span>}
+                                        {/* Nome: 1 Linha, Fonte menor */}
+                                        <h3 className="text-sm font-bold text-blue-600 truncate leading-tight">{est.name}</h3>
+                                        {/* Frase: 1 Linha, Fonte menor */}
+                                        <p className="text-xs text-gray-500 italic truncate leading-tight mt-0.5">"{est.phrase}"</p>
+                                    </div>
+                                    
+                                    {/* Linha de Status e Ações (Abaixo da frase) */}
+                                    <div className="flex items-center justify-between mt-1.5">
+                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${est.isOpen ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                            {est.isOpen ? 'Aberto' : 'Fechado'}
+                                        </span>
+
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (window.confirm(`Remover "${est.name}"?`)) {
+                                                    unfavoriteEstablishment(currentUser!.id, est.id);
+                                                }
+                                            }}
+                                            className="text-gray-300 hover:text-red-500 p-1"
+                                            aria-label="Remover"
+                                        >
+                                            <TrashIcon />
+                                        </button>
                                     </div>
                                 </div>
-                            </div>
-                            <div onClick={() => handleSelectEstablishment(est)} className="cursor-pointer">
-                                <span className={`font-semibold text-2xl ${est.isOpen ? 'text-blue-500' : 'text-gray-300'}`}>&rarr;</span>
+                                {/* Setinha removida */}
                             </div>
                         </div>
                     ))}
                 </div>
             )}
-             <div className="my-6 text-center">
-                <button onClick={() => setVipModalOpen(true)} className="font-medium text-blue-600 hover:text-blue-500 underline">
-                   Quer favoritar mais locais? Conheça o VIP!
+             <div className="my-8 text-center bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <p className="text-xs text-gray-600 mb-1">Quer ter mais favoritos?</p>
+                <button onClick={() => setVipModalOpen(true)} className="font-bold text-lg text-blue-600 hover:text-blue-800 transition-colors">
+                   Seja VIP
                 </button>
             </div>
             </>
@@ -256,28 +283,32 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       </main>
 
       {isEnteringTable && selectedEstablishment && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 text-center">
-                  <h2 className="text-2xl font-bold mb-2">Bem-vindo(a) ao {selectedEstablishment.name}</h2>
+          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 animate-fade-in">
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-xs p-5 text-center">
+                  <h2 className="text-lg font-bold mb-1 text-blue-800">{selectedEstablishment.name}</h2>
+                  
                   <form onSubmit={handleTableSubmit}>
-                      <label htmlFor="tableNumber" className="block text-lg font-medium text-gray-700 my-4">Informe o número da sua mesa</label>
+                      <label htmlFor="tableNumber" className="block text-sm font-medium text-gray-600 my-3">Qual o número da mesa?</label>
                       <input
                           id="tableNumber"
-                          type="text"
+                          type="number"
                           value={tableNumber}
-                          onChange={(e) => setTableNumber(e.target.value.slice(0, 3).toUpperCase())}
-                          className="w-full text-center text-3xl font-bold p-4 border-2 border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                          maxLength={3}
+                          onChange={(e) => setTableNumber(e.target.value)}
+                          className="w-full text-center text-3xl font-bold p-3 border-2 border-gray-200 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-800"
                           autoFocus
                           required
                       />
-                      {tableError && <p className="text-red-500 text-sm mt-2">{tableError}</p>}
-                      <div className="mt-6 flex gap-2">
-                         <button type="button" onClick={() => { setIsEnteringTable(false); setSelectedEstablishment(null); setTableNumber(''); setTableError(''); }} className="w-full bg-gray-200 text-gray-800 font-bold py-3 px-6 rounded-lg shadow-md hover:bg-gray-300">
+                      {tableError && <p className="text-red-500 text-xs mt-2 font-medium bg-red-50 p-1 rounded">{tableError}</p>}
+                      
+                      <div className="mt-5 flex gap-2">
+                         <button type="button" onClick={() => { setIsEnteringTable(false); setSelectedEstablishment(null); setTableNumber(''); setTableError(''); }} className="flex-1 bg-gray-100 text-gray-700 font-bold py-2 rounded-md text-sm hover:bg-gray-200">
                             Cancelar
                         </button>
-                        <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-blue-700">
-                            Entrar na Mesa
+                        <button 
+                            type="submit" 
+                            className="flex-1 bg-blue-600 text-white font-bold py-2 rounded-md text-sm hover:bg-blue-700 shadow-md"
+                        >
+                            Entrar
                         </button>
                       </div>
                   </form>
@@ -287,21 +318,15 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       
       {!isGuest && (
         <>
-            <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg border-t border-gray-200 p-2 flex justify-around items-center">
-              <button onClick={() => setShareAppOpen(true)} className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-gray-600 hover:text-blue-600 transition-colors">
-                  <ShareIcon /> <span className="text-xs sm:text-base">Compartilhar</span>
+            <div className="fixed bottom-0 left-0 right-0 bg-white shadow-[0_-2px_10px_rgba(0,0,0,0.05)] border-t border-gray-100 p-2 flex justify-between px-8 items-center z-10">
+              <button onClick={() => setShareAppOpen(true)} className="flex flex-col items-center text-gray-400 hover:text-blue-600 transition-colors">
+                  <ShareIcon /> <span className="text-[10px] mt-0.5">Share</span>
               </button>
-              <button onClick={() => setProfileOpen(true)} className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 text-gray-600 hover:text-blue-600 transition-colors">
-                  <UserIcon /> <span className="text-xs sm:text-base">Meu Perfil</span>
+              <button onClick={() => setProfileOpen(true)} className="flex flex-col items-center text-gray-400 hover:text-blue-600 transition-colors">
+                  <UserIcon /> <span className="text-[10px] mt-0.5">Perfil</span>
               </button>
             </div>
-            <ShareModal 
-                isOpen={isShareAppOpen} 
-                onClose={() => setShareAppOpen(false)}
-                title="Compartilhe o Mesa Fácil!"
-                text="Convide outros estabelecimentos e clientes a usarem o aplicativo."
-                url={APP_URL}
-            />
+            <ShareModal isOpen={isShareAppOpen} onClose={() => setShareAppOpen(false)} title="Compartilhar" text="" url={APP_URL} />
             <ProfileModal isOpen={isProfileOpen} onClose={() => setProfileOpen(false)} />
             <VipModal isOpen={isVipModalOpen} onClose={() => setVipModalOpen(false)} />
         </>
