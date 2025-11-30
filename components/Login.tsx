@@ -38,7 +38,7 @@ const Login: React.FC<LoginProps> = ({ onGoToRegister, onBack }) => {
                     &larr; Voltar
              </button>
             <div className="w-full max-w-sm text-center">
-                <h1 className="text-4xl font-bold text-blue-600 mb-2">Mesa Ativa</h1>
+                <h1 className="text-4xl font-bold text-blue-600 mb-2">Mesa Fácil</h1>
                 <p className="text-lg text-slate-600 mb-8">Bem-vindo(a) de volta!</p>
                 
                 <form onSubmit={handleSubmit} className="w-full bg-white p-8 rounded-2xl shadow-lg text-left space-y-4">

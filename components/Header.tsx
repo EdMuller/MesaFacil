@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { Establishment } from '../types';
+import FoodClocheIcon from './icons/FoodClocheIcon';
 
 interface HeaderProps {
     onBack: () => void;
@@ -50,7 +51,10 @@ const Header: React.FC<HeaderProps> = ({ onBack, isEstablishment = false, establ
     }
 
     return (
-        <h1 className="text-xl font-bold text-blue-600">Mesa Ativa</h1>
+        <div className="flex items-center gap-2">
+            <div className="text-blue-600"><FoodClocheIcon /></div>
+            <h1 className="text-xl font-bold text-blue-600">Mesa Fácil</h1>
+        </div>
     )
   }
 

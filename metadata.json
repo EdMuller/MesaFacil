@@ -1,5 +1,5 @@
 {
-  "name": "Mesa Ativa - Gerenciador de Atendimentos",
+  "name": "Mesa Fácil - Gerenciador de Atendimentos",
   "description": "Um aplicativo simples e eficiente para organizar os atendimentos em restaurantes, pizzarias e lanchonetes. Clientes fazem chamados de suas mesas, e o estabelecimento gerencia tudo em um painel único em tempo real.",
   "requestFramePermissions": [
     "camera"

@@ -159,9 +159,10 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole,
             className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col items-center justify-center py-3 px-4"
             >
                 <div className="flex items-center gap-2 mb-1">
+                    {/* Ícone Movido para a esquerda */}
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                     {/* Fonte tamanho lg para igualar ao botão Cliente Fidelizado */}
                     <span className="text-lg font-bold">Acesso Rápido</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                 </div>
                 {/* Texto movido para baixo e reduzido (text-xs) */}
                 <span className="text-xs font-normal text-green-100 opacity-90">Para Clientes</span>
@@ -207,8 +208,6 @@ const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole,
         </div>
 
       </div>
-
-      {/* Botão de Redefinição Removido conforme solicitado */}
     </div>
   );
 };

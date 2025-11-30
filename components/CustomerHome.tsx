@@ -78,6 +78,11 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
         }
         
         if (isGuest) {
+            if(!establishment.isOpen) {
+                setError("Estabelecimento encontrado, mas está fechado no momento.");
+                setIsLoadingSearch(false);
+                return;
+            }
             handleSelectEstablishment(establishment);
         } else {
             try {
@@ -108,6 +113,13 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
   const handleTableSubmit = (e: React.FormEvent) => {
       e.preventDefault();
       setTableError('');
+
+      if (!selectedEstablishment) return;
+
+      if(!selectedEstablishment.isOpen) {
+          setTableError("O estabelecimento fechou. Não é possível entrar.");
+          return;
+      }
 
       if (!tableNumber.trim()) {
         setTableError("Por favor, informe o número da mesa.");
@@ -158,9 +170,12 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
        <main className="p-4 md:p-6 max-w-2xl mx-auto">
         
         {isGuest ? (
-            <div className="text-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-800">Acesso Eventual</h1>
-                <p className="text-gray-600">Encontre o estabelecimento para começar.</p>
+            <div className="text-center mb-10 mt-[-20px]">
+                {/* Estilo Igualado à tela inicial */}
+                <h1 className="text-2xl md:text-3xl font-extrabold text-blue-600 mb-2 tracking-tight">Mesa Fácil</h1>
+                <p className="text-xs text-slate-500 font-light max-w-[200px] mx-auto leading-relaxed">
+                    Acesso Eventual.<br/>Busque pelo telefone.
+                </p>
             </div>
         ) : (
             <div className="text-center mb-6">
@@ -211,15 +226,20 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                                     <TrashIcon />
                                 </button>
                                 <div onClick={() => handleSelectEstablishment(est)} className="flex items-center gap-4 cursor-pointer">
-                                    <img src={est.photoUrl} alt={est.name} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+                                    <div className="relative">
+                                        <img src={est.photoUrl} alt={est.name} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+                                        {/* Offline indicator for favorites */}
+                                        <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${est.isOpen ? 'bg-green-500' : 'bg-gray-400'}`} title={est.isOpen ? "Online" : "Fechado"}></div>
+                                    </div>
                                     <div>
                                         <h3 className="text-xl font-bold text-blue-600">{est.name}</h3>
                                         <p className="text-sm text-gray-500 italic">"{est.phrase}"</p>
+                                        {!est.isOpen && <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full font-bold">FECHADO</span>}
                                     </div>
                                 </div>
                             </div>
                             <div onClick={() => handleSelectEstablishment(est)} className="cursor-pointer">
-                                <span className="text-blue-500 font-semibold text-2xl">&rarr;</span>
+                                <span className={`font-semibold text-2xl ${est.isOpen ? 'text-blue-500' : 'text-gray-300'}`}>&rarr;</span>
                             </div>
                         </div>
                     ))}
@@ -278,7 +298,7 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
             <ShareModal 
                 isOpen={isShareAppOpen} 
                 onClose={() => setShareAppOpen(false)}
-                title="Compartilhe o Mesa Ativa!"
+                title="Compartilhe o Mesa Fácil!"
                 text="Convide outros estabelecimentos e clientes a usarem o aplicativo."
                 url={APP_URL}
             />
