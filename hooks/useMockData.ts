@@ -132,7 +132,8 @@ export const useMockData = () => {
       
       checkSession();
       
-      const { data: authListener } = supabase?.auth.onAuthStateChange(async (event: any, session: any) => {
+      // Proteção adicionada aqui com '?.' antes de onAuthStateChange
+      const { data: authListener } = supabase?.auth?.onAuthStateChange(async (event: any, session: any) => {
           if (event === 'SIGNED_IN' && session?.user) {
               await fetchUserProfile(session.user.id, session.user.email!);
           } else if (event === 'SIGNED_OUT') {
@@ -259,7 +260,8 @@ export const useMockData = () => {
         const { data: favs } = await supabase.from('customer_favorites').select('establishment_id').eq('user_id', userId);
         const favIds = favs?.map((f: any) => f.establishment_id) || [];
 
-        await Promise.all(favIds.map((id: string) => loadEstablishmentData(id)));
+        // Usar Promise.allSettled para evitar que um erro em um estabelecimento trave todos
+        await Promise.allSettled(favIds.map((id: string) => loadEstablishmentData(id)));
 
         const profile: CustomerProfile = {
             userId: userId,
