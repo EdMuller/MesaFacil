@@ -267,7 +267,8 @@ export const useMockData = () => {
           settings: est.settings || DEFAULT_SETTINGS,
           tables: tablesMap,
           eventLog: [],
-          isOpen: est.is_open || false
+          // Se a coluna não existir no DB, assume TRUE para não bloquear o estabelecimento
+          isOpen: est.is_open ?? true 
       };
 
       setEstablishments(prev => new Map(prev).set(estId, fullEst));
@@ -339,7 +340,12 @@ export const useMockData = () => {
           if (data.user) {
               const { data: est } = await supabase.from('establishments').select('id').eq('owner_id', data.user.id).single();
               if (est) {
-                  await supabase.from('establishments').update({ is_open: true }).eq('id', est.id);
+                  // Tenta atualizar o status, mas se a coluna não existir, apenas loga o aviso e prossegue
+                  try {
+                    await supabase.from('establishments').update({ is_open: true }).eq('id', est.id);
+                  } catch (e) {
+                    console.warn("Não foi possível atualizar o status is_open. Verifique se a coluna existe.", e);
+                  }
               }
 
               return { id: data.user.id, email, password: '', role: Role.CUSTOMER, name: '', status: UserStatus.TESTING } as User; 
@@ -445,27 +451,51 @@ export const useMockData = () => {
         let estId = existingEst?.id;
 
         if (!existingEst) {
-            const { data: estData, error: estError } = await withRetry<any>(() => supabase!.from('establishments').insert({
+            const basePayload = {
                 owner_id: userId,
                 name,
                 phone: cleanPhone,
                 photo_url: photoUrl || `https://picsum.photos/seed/${Date.now()}/400/200`,
                 phrase,
                 settings: DEFAULT_SETTINGS,
+            };
+
+            // Tenta inserir, assumindo que is_open possa existir
+            let { data: estData, error: estError } = await withRetry<any>(() => supabase!.from('establishments').insert({
+                ...basePayload,
                 is_open: true 
             }).select().single());
+            
+            // Fallback: Se falhar por causa da coluna, tenta sem ela
+            if (estError && (estError.message?.includes("column") || estError.code === '42703')) {
+                const retry = await withRetry<any>(() => supabase!.from('establishments').insert(basePayload).select().single());
+                estData = retry.data;
+                estError = retry.error;
+            }
             
             if (estError) throw new Error(estError.message);
             estId = estData.id;
         } else {
             // Update existing establishment details
-             await withRetry<any>(() => supabase!.from('establishments').update({
+            const updatePayload: any = {
                 name,
                 phone: cleanPhone,
                 photo_url: photoUrl || `https://picsum.photos/seed/${Date.now()}/400/200`,
                 phrase,
                 is_open: true
-            }).eq('id', estId));
+            };
+
+            // Para update, usamos o catch pois não temos o retorno de erro tão direto sem select
+             try {
+                await withRetry<any>(() => supabase!.from('establishments').update(updatePayload).eq('id', estId));
+             } catch (e: any) {
+                 if (e.message && (e.message.includes("column") || e.code === '42703')) {
+                     delete updatePayload.is_open;
+                     await withRetry<any>(() => supabase!.from('establishments').update(updatePayload).eq('id', estId));
+                 } else {
+                     throw e;
+                 }
+             }
         }
 
         return { id: userId, email, role: Role.ESTABLISHMENT, name, status: UserStatus.TESTING, establishmentId: estId } as User;
@@ -759,6 +789,7 @@ export const useMockData = () => {
 
   const checkTableAvailability = async (establishmentId: string, tableNumber: string): Promise<boolean> => {
       // 1. Check if establishment is online (Open)
+      // Note: If column is missing, establishment will load as Open (default true), so this check passes.
       const establishment = establishments.get(establishmentId);
       if (establishment && !establishment.isOpen) {
           throw new Error("Este estabelecimento está fechado ou indisponível no momento.");
