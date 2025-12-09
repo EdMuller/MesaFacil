@@ -85,7 +85,6 @@ interface RoleSelectionScreenProps {
 }
 
 const RoleSelectionScreen: React.FC<RoleSelectionScreenProps> = ({ onSelectRole, onGoToLogin }) => {
-  const { resetConfig } = useAppContext();
   const [showRegisterOptions, setShowRegisterOptions] = useState(false);
   
   // Função para "Fechar" (Reiniciar a tela)

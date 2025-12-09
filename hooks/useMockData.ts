@@ -38,18 +38,23 @@ let supabase: any = null;
 
 const initSupabase = () => {
     try {
-        let url = SUPABASE_CONFIG.url;
-        let key = SUPABASE_CONFIG.anonKey;
+        // Limpeza agressiva de strings para evitar erros de copy-paste (espaços, aspas extras)
+        let url = (SUPABASE_CONFIG.url || '').trim().replace(/['"]/g, '');
+        let key = (SUPABASE_CONFIG.anonKey || '').trim().replace(/['"]/g, '');
 
         if (!url || !key) {
-            url = localStorage.getItem('supabase_url') || '';
-            key = localStorage.getItem('supabase_key') || '';
+            url = (localStorage.getItem('supabase_url') || '').trim();
+            key = (localStorage.getItem('supabase_key') || '').trim();
         }
 
         // Only initialize if we have creds and no instance, or if instance is invalid
         if (url && key) {
              if (!supabase) {
-                if (!url.startsWith('http')) throw new Error("Invalid URL");
+                // Validação básica de formato URL para evitar crash do createClient
+                if (!url.startsWith('http')) {
+                    console.warn("URL do Supabase inválida:", url);
+                    return null;
+                }
                 supabase = createClient(url, key);
              }
         } else {
@@ -142,8 +147,8 @@ export const useMockData = () => {
       
       let authListener: any = null;
       
-      // Setup listener only if client is valid
-      if (client && client.auth) {
+      // Setup listener only if client is valid and fully initialized
+      if (client && client.auth && typeof client.auth.onAuthStateChange === 'function') {
           try {
               const { data } = client.auth.onAuthStateChange(async (event: any, session: any) => {
                   if (event === 'SIGNED_IN' && session?.user) {
@@ -800,6 +805,5 @@ export const useMockData = () => {
     deleteCurrentUser,
     subscribeToEstablishmentCalls,
     checkTableAvailability,
-    loadCustomerData // Exposing this to allow manual refresh
   };
 };
