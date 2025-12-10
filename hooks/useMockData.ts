@@ -114,6 +114,9 @@ export const useMockData = () => {
   const [establishments, setEstablishments] = useState<Map<string, Establishment>>(new Map());
   const [customerProfiles, setCustomerProfiles] = useState<Map<string, CustomerProfile>>(new Map());
   const [isInitialized, setIsInitialized] = useState(false);
+  
+  // Novo Estado: Rastreia sessões ativas (EstID:TableNum) localmente
+  const [activeSessions, setActiveSessions] = useState<Set<string>>(new Set());
 
   useEffect(() => {
       const client = initSupabase();
@@ -146,6 +149,7 @@ export const useMockData = () => {
               } else if (event === 'SIGNED_OUT') {
                   setCurrentUser(null);
                   setEstablishments(new Map());
+                  setActiveSessions(new Set()); // Limpa sessões locais ao deslogar
               }
           });
           authListener = data;
@@ -287,35 +291,34 @@ export const useMockData = () => {
   };
 
   // --- REALTIME SUBSCRIPTION ---
-  // Essa função é vital para o funcionamento em tempo real
   const subscribeToEstablishmentCalls = useCallback((estId: string) => {
       if (!supabase) return () => {};
       
-      // Cria um canal específico para este estabelecimento
+      console.log(`📡 Inscrevendo em Realtime para Est: ${estId}`);
+
       const channel = supabase.channel(`est_room:${estId}`)
-        // Ouve mudanças na tabela de chamados (INSERT ou UPDATE)
         .on('postgres_changes', 
             { event: '*', schema: 'public', table: 'calls', filter: `establishment_id=eq.${estId}` }, 
             (payload: any) => {
-                // Quando houver mudança, recarrega os dados completos do estabelecimento
+                console.log("🔔 Mudança em CALLS recebida:", payload);
                 loadEstablishmentData(estId);
             }
         )
-        // Ouve mudanças na tabela de estabelecimento (ex: is_open mudou, configurações mudaram)
         .on('postgres_changes',
             { event: '*', schema: 'public', table: 'establishments', filter: `id=eq.${estId}` },
             (payload: any) => {
-                console.log("Establishment update received:", payload);
+                console.log("🔔 Mudança em ESTABLISHMENT recebida:", payload);
                 loadEstablishmentData(estId);
             }
         )
         .subscribe((status: string) => {
             if (status === 'SUBSCRIBED') {
-                console.log(`Conectado em tempo real ao estabelecimento: ${estId}`);
+                console.log(`✅ Conectado em tempo real: ${estId}`);
             }
         });
 
       return () => { 
+          console.log(`🛑 Desconectando Realtime: ${estId}`);
           supabase?.removeChannel(channel); 
       }
   }, []);
@@ -329,13 +332,11 @@ export const useMockData = () => {
           if (data.user) {
               const { data: est } = await supabase.from('establishments').select('id').eq('owner_id', data.user.id).single();
               if (est) {
-                  // FORÇA O STATUS ABERTO NO LOGIN
                   try {
                     await supabase.from('establishments').update({ is_open: true }).eq('id', est.id);
                   } catch (e) {
                     console.error("Falha ao definir is_open=true. Verifique se a coluna existe.", e);
                   }
-                  // Recarrega para refletir na UI local imediatamente
                   await loadEstablishmentData(est.id);
               }
 
@@ -353,7 +354,6 @@ export const useMockData = () => {
           return;
       }
       
-      // Se for estabelecimento, fecha antes de sair
       if (currentUser?.role === Role.ESTABLISHMENT && currentUser.establishmentId) {
           try {
              console.log("Fechando estabelecimento...");
@@ -366,6 +366,7 @@ export const useMockData = () => {
       await supabase.auth.signOut();
       setCurrentUser(null);
       setEstablishments(new Map());
+      setActiveSessions(new Set()); // Limpa sessões
   }, [currentUser]);
 
   const registerEstablishment = useCallback(async (name: string, phone: string, email: string, password: string, photoUrl: string | null, phrase: string) => {
@@ -378,13 +379,10 @@ export const useMockData = () => {
         const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
         
         if (authError) {
-            // Lógica de recuperação para usuário já existente (zombie user)
             if (authError.message?.includes("already registered") || authError.code === 'user_already_exists') {
-                 // Tenta logar para ver se recupera
                  const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
                  if (!loginError && loginData.user) {
                      userId = loginData.user.id;
-                     // Verifica se já tem perfil de estabelecimento
                      const { data: prof } = await supabase.from('profiles').select('role').eq('id', userId).single();
                      if (prof && prof.role === Role.ESTABLISHMENT) throw new Error("Conta já existente. Faça login.");
                  } else {
@@ -397,10 +395,8 @@ export const useMockData = () => {
             userId = authData.user!.id;
         }
 
-        // Aguarda propagação do Auth
         await new Promise(r => setTimeout(r, 1000));
 
-        // Cria/Atualiza Profile
         await supabase.from('profiles').upsert({
             id: userId,
             email,
@@ -409,7 +405,6 @@ export const useMockData = () => {
             status: UserStatus.TESTING
         });
 
-        // Cria Estabelecimento
         const estPayload = {
             owner_id: userId,
             name,
@@ -417,13 +412,11 @@ export const useMockData = () => {
             photo_url: photoUrl || `https://picsum.photos/seed/${Date.now()}/400/200`,
             phrase,
             settings: DEFAULT_SETTINGS,
-            is_open: true // Já nasce aberto
+            is_open: true 
         };
 
         const { data: estData, error: estError } = await supabase.from('establishments').insert(estPayload).select().single();
-        
         if (estError) throw new Error(estError.message);
-
         return { id: userId, email, role: Role.ESTABLISHMENT, name, establishmentId: estData.id } as User;
 
       } catch (err: any) {
@@ -433,7 +426,6 @@ export const useMockData = () => {
 
   const registerCustomer = useCallback(async (name: string, email: string, password: string, phone?: string, cep?: string) => {
       if (!supabase) throw new Error("Supabase não iniciado.");
-      // ... (Lógica similar de cadastro de cliente mantida simplificada aqui)
       let userId = '';
       try {
           const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
@@ -456,8 +448,22 @@ export const useMockData = () => {
       }
   }, []);
 
+  // Track session locally
+  const trackTableSession = useCallback((estId: string, tableNumber: string) => {
+      const key = `${estId}:${tableNumber}`;
+      setActiveSessions(prev => {
+          const newSet = new Set(prev);
+          newSet.add(key);
+          return newSet;
+      });
+  }, []);
+
   const addCall = useCallback(async (establishmentId: string, tableNumber: string, type: CallType) => {
       if (!supabase) return;
+      
+      // Sempre rastreia a sessão ao fazer um chamado
+      trackTableSession(establishmentId, tableNumber);
+
       try {
         await supabase.from('calls').insert({
             establishment_id: establishmentId,
@@ -466,21 +472,56 @@ export const useMockData = () => {
             status: CallStatus.SENT,
             created_at_ts: Date.now()
         });
-        // Não precisa chamar loadEstablishmentData aqui se o Realtime estiver funcionando,
-        // mas por segurança deixamos para feedback imediato na UI de quem clicou
-        loadEstablishmentData(establishmentId);
+        
+        await loadEstablishmentData(establishmentId);
       } catch (e) {
           console.error(e);
           alert("Erro ao enviar chamado.");
       }
-  }, []);
+  }, [trackTableSession]);
 
-  // Helpers para atualizar chamados
   const updateCallStatus = async (estId: string, callId: string, status: CallStatus) => {
       if (!supabase) return;
       await supabase.from('calls').update({ status }).eq('id', callId);
-      // Realtime vai atualizar a UI
+      await loadEstablishmentData(estId);
   };
+  
+  const leaveTable = useCallback(async (estId: string, tableNumber: string) => {
+      if (!supabase) return;
+      try {
+        await supabase.from('calls')
+            .update({ status: CallStatus.CANCELED })
+            .eq('establishment_id', estId)
+            .eq('table_number', tableNumber)
+            .in('status', [CallStatus.SENT, CallStatus.VIEWED]);
+        
+        // Remove da sessão ativa local se existir
+        const key = `${estId}:${tableNumber}`;
+        setActiveSessions(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(key);
+            return newSet;
+        });
+
+        await loadEstablishmentData(estId);
+      } catch (e) {
+          console.error("Erro ao limpar mesa:", e);
+      }
+  }, []);
+
+  // Função para limpar TODAS as sessões ativas (usado no Logout)
+  const clearAllSessions = useCallback(async () => {
+      const sessions = Array.from(activeSessions);
+      console.log("Limpando sessões:", sessions);
+      for (const session of sessions) {
+          const [estId, tableNum] = (session as string).split(':');
+          if (estId && tableNum) {
+              await leaveTable(estId, tableNum);
+          }
+      }
+      setActiveSessions(new Set());
+  }, [activeSessions, leaveTable]);
+
 
   const viewAllCallsForTable = useCallback(async (estId: string, tableNumber: string) => {
       if (!supabase) return;
@@ -488,24 +529,30 @@ export const useMockData = () => {
       if (data && data.length > 0) {
           const ids = data.map((c: any) => c.id);
           await supabase.from('calls').update({ status: CallStatus.VIEWED }).in('id', ids);
+          await loadEstablishmentData(estId); 
       }
   }, []);
 
   const cancelOldestCallByType = useCallback(async (estId: string, tableNumber: string, callType: CallType) => {
      if (!supabase) return;
      const { data } = await supabase.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNumber).eq('type', callType).in('status', ['SENT', 'VIEWED']).order('created_at_ts', { ascending: true }).limit(1);
-    if (data && data.length > 0) updateCallStatus(estId, data[0].id, CallStatus.CANCELED);
+    if (data && data.length > 0) {
+        await updateCallStatus(estId, data[0].id, CallStatus.CANCELED);
+    }
   }, []);
 
   const attendOldestCallByType = useCallback(async (estId: string, tableNumber: string, callType: CallType) => {
       if (!supabase) return;
        const { data } = await supabase.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNumber).eq('type', callType).in('status', ['SENT', 'VIEWED']).order('created_at_ts', { ascending: true }).limit(1);
-    if (data && data.length > 0) updateCallStatus(estId, data[0].id, CallStatus.ATTENDED);
+    if (data && data.length > 0) {
+        await updateCallStatus(estId, data[0].id, CallStatus.ATTENDED);
+    }
   }, []);
 
   const closeTable = useCallback(async (estId: string, tableNumber: string) => {
       if (!supabase) return;
       await supabase.from('calls').update({ status: CallStatus.ATTENDED }).eq('establishment_id', estId).eq('table_number', tableNumber).in('status', ['SENT', 'VIEWED']);
+      await loadEstablishmentData(estId);
   }, []);
 
   const updateSettings = useCallback(async (estId: string, newSettings: Settings) => {
@@ -525,7 +572,6 @@ export const useMockData = () => {
         const { data, error } = await supabase.from('establishments').select('*').eq('phone', cleanSearch).limit(1);
         if (error) throw error;
         if (data && data.length > 0) {
-            // Carrega e retorna
             return await loadEstablishmentData(data[0].id);
         }
       } catch (e) {
@@ -536,7 +582,6 @@ export const useMockData = () => {
 
   const favoriteEstablishment = useCallback(async (userId: string, establishmentId: string) => {
       if (!supabase) return;
-      // Validação de limite de 3
       const { count } = await supabase.from('customer_favorites').select('*', { count: 'exact', head: true }).eq('user_id', userId);
       if (count !== null && count >= 3) throw new Error("Você atingiu o máximo de 3 estabelecimentos favoritos.");
 
@@ -553,7 +598,6 @@ export const useMockData = () => {
 
   // --- Helpers UI ---
   const getTableSemaphoreStatus = useCallback((table: Table, settings: Settings): SemaphoreStatus => {
-    // Mesma lógica visual
     const activeCalls = table.calls.filter(c => c.status !== CallStatus.ATTENDED && c.status !== CallStatus.CANCELED);
     if (activeCalls.length === 0) return SemaphoreStatus.IDLE;
     const oldestCall = activeCalls.reduce((oldest, current) => current.createdAt < oldest.createdAt ? current : oldest);
@@ -567,7 +611,6 @@ export const useMockData = () => {
   }, []);
 
   const getCallTypeSemaphoreStatus = useCallback((table: Table, callType: CallType, settings: Settings): SemaphoreStatus => {
-     // Mesma lógica visual
     const callsOfType = table.calls.filter(c => c.type === callType && (c.status === CallStatus.SENT || c.status === CallStatus.VIEWED));
     if (callsOfType.length === 0) return SemaphoreStatus.IDLE;
     const oldestCall = callsOfType.reduce((oldest, current) => current.createdAt < oldest.createdAt ? current : oldest, callsOfType[0]);
@@ -581,7 +624,6 @@ export const useMockData = () => {
   }, []);
 
   const checkTableAvailability = async (establishmentId: string, tableNumber: string): Promise<boolean> => {
-      // 1. Check strict status from DB
       const est = establishments.get(establishmentId);
       if (est && est.isOpen === false) {
           throw new Error("O estabelecimento fechou.");
@@ -607,7 +649,6 @@ export const useMockData = () => {
   }, [currentUser, logout]);
 
 
-  // Current State Helpers
   const currentEstablishment = useMemo(() => {
       if (currentUser?.role === Role.ESTABLISHMENT && currentUser.establishmentId) {
           return establishments.get(currentUser.establishmentId) ?? null;
@@ -629,6 +670,7 @@ export const useMockData = () => {
     establishments,
     currentEstablishment,
     currentCustomerProfile,
+    activeSessions, // Exportado para UI
     login,
     logout,
     loginAsAdminBackdoor,
@@ -638,7 +680,10 @@ export const useMockData = () => {
     cancelOldestCallByType,
     attendOldestCallByType,
     viewAllCallsForTable,
-    closeTable, 
+    closeTable,
+    leaveTable,
+    clearAllSessions, // Exportado para Logout
+    trackTableSession, // Exportado para Entrada na Mesa
     updateSettings, 
     getTableSemaphoreStatus,
     getCallTypeSemaphoreStatus,

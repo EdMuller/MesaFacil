@@ -28,6 +28,8 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       favoriteEstablishment,
       unfavoriteEstablishment,
       subscribeToEstablishmentCalls,
+      activeSessions,
+      clearAllSessions
     } = useAppContext();
 
   const [selectedEstablishment, setSelectedEstablishment] = useState<Establishment | null>(null);
@@ -179,12 +181,32 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
       setIsEnteringTable(false);
   }
 
+  // Intercepta o Logout para limpar mesas abertas
+  const handleSafeLogout = async () => {
+      // Verifica se há sessões ativas
+      if (activeSessions.size > 0) {
+          const confirmClose = window.confirm(
+              "Você possui mesas/chamados abertos. Sair do aplicativo irá fechar suas mesas e cancelar chamados pendentes. Deseja continuar?"
+          );
+          if (confirmClose) {
+              await clearAllSessions();
+              if (isGuest && onExitGuestMode) onExitGuestMode();
+              else logout();
+          }
+      } else {
+          // Sem sessões ativas, sai direto
+          if (isGuest && onExitGuestMode) onExitGuestMode();
+          else logout();
+      }
+  };
+
   // Se selecionou mesa válida e estabelecimento aberto
   if (selectedEstablishment && tableNumber && !isEnteringTable) {
       return <CustomerView 
                 establishment={selectedEstablishment} 
                 tableNumber={tableNumber} 
                 onBack={() => {
+                    // Ao voltar, apenas limpa a seleção visual, mas NÃO fecha a mesa no banco
                     setSelectedEstablishment(null);
                     setTableNumber('');
                     setTableError('');
@@ -194,13 +216,12 @@ const CustomerHome: React.FC<CustomerHomeProps> = ({ isGuest = false, onExitGues
                 }}
              />
   }
-
-  const headerAction = isGuest ? onExitGuestMode! : logout;
-  const backText = "Voltar"; 
+  
+  const backText = isGuest ? "Sair do Acesso Rápido" : "Sair"; 
 
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
-      <Header onBack={headerAction} backText={backText} establishmentOverride={null} />
+      <Header onBack={handleSafeLogout} backText={backText} establishmentOverride={null} />
        <main className="p-2 max-w-lg mx-auto">
         
         {isGuest ? (
