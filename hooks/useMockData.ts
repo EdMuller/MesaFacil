@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Establishment, Table, Call, CallType, CallStatus, Settings, SemaphoreStatus, User, Role, CustomerProfile, UserStatus, EventLogItem } from '../types';
 import { DEFAULT_SETTINGS, SUPABASE_CONFIG } from '../constants';
@@ -34,9 +34,12 @@ interface DBCall {
 }
 
 // --- Initialize Supabase ---
-let supabase: any = null;
+let supabaseInstance: any = null;
 
 const initSupabase = () => {
+    // Evita recriar instância se já existe
+    if (supabaseInstance) return supabaseInstance;
+
     try {
         let url = (SUPABASE_CONFIG.url || '').trim().replace(/['"]/g, '');
         let key = (SUPABASE_CONFIG.anonKey || '').trim().replace(/['"]/g, '');
@@ -46,43 +49,25 @@ const initSupabase = () => {
             key = (localStorage.getItem('supabase_key') || '').trim();
         }
 
-        if (url && key) {
-             if (!supabase) {
-                if (!url.startsWith('http')) {
-                    console.warn("URL do Supabase inválida encontrada e removida:", url);
-                    localStorage.removeItem('supabase_url');
-                    localStorage.removeItem('supabase_key');
-                    return null;
-                }
-                
-                try {
-                    supabase = createClient(url, key, {
-                        auth: {
-                            persistSession: true,
-                            autoRefreshToken: true,
-                            detectSessionInUrl: false,
-                        },
-                        realtime: {
-                            params: {
-                                eventsPerSecond: 10,
-                            },
-                        },
-                    });
-                } catch (clientErr) {
-                    console.error("Erro fatal ao criar cliente Supabase.", clientErr);
-                    localStorage.removeItem('supabase_url');
-                    localStorage.removeItem('supabase_key');
-                    supabase = null;
-                }
-             }
-        } else {
-            supabase = null;
+        if (url && key && url.startsWith('http')) {
+            supabaseInstance = createClient(url, key, {
+                auth: {
+                    persistSession: true,
+                    autoRefreshToken: true,
+                    detectSessionInUrl: false,
+                },
+                realtime: {
+                    params: {
+                        eventsPerSecond: 2, // Reduzido para evitar sobrecarga
+                    },
+                },
+            });
         }
     } catch (e) {
         console.error("Failed to init supabase", e);
-        supabase = null;
+        supabaseInstance = null;
     }
-    return supabase;
+    return supabaseInstance;
 }
 
 const sanitizePhone = (phone: string) => {
@@ -100,7 +85,7 @@ const handleCommonErrors = (err: any) => {
     return msg;
 }
 
-async function withRetry<T>(operation: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+async function withRetry<T>(operation: () => Promise<T>, retries = 2, delay = 1000): Promise<T> {
     try {
         return await operation();
     } catch (err: any) {
@@ -125,8 +110,12 @@ export const useMockData = () => {
   // Rastreamento local de sessões
   const [activeSessions, setActiveSessions] = useState<Set<string>>(new Set());
 
+  // Refs para evitar loops em useEffects
+  const supabaseRef = useRef<any>(null);
+
   useEffect(() => {
       const client = initSupabase();
+      supabaseRef.current = client;
       
       const checkSession = async () => {
           if (!client || !client.auth) {
@@ -136,16 +125,13 @@ export const useMockData = () => {
 
           try {
               const { data: { session }, error } = await client.auth.getSession();
-              if (error) throw error;
               
               if (session?.user) {
                  await fetchUserProfile(session.user.id, session.user.email!);
               }
           } catch (error: any) {
-              console.warn("Check session error:", error);
-              if (error.message && (error.message.includes("invalid claim") || error.message.includes("JWT"))) {
-                   await client.auth.signOut();
-              }
+              console.warn("Check session warning:", error);
+              // Não faz signOut automático aqui para evitar loops de recarregamento
           } finally {
               setIsInitialized(true);
           }
@@ -175,14 +161,14 @@ export const useMockData = () => {
   }, []);
 
   const fetchUserProfile = async (userId: string, email: string) => {
-      if (!supabase) return;
+      if (!supabaseRef.current) return;
       
       try {
-          const { data: profile, error } = await withRetry<any>(() => supabase!.from('profiles').select('*').eq('id', userId).single());
+          const { data: profile, error } = await withRetry<any>(() => supabaseRef.current!.from('profiles').select('*').eq('id', userId).single());
           
           if (error) {
               if (error.code === 'PGRST116') {
-                  await supabase.auth.signOut();
+                  await supabaseRef.current.auth.signOut();
                   setCurrentUser(null);
                   return;
               }
@@ -200,11 +186,9 @@ export const useMockData = () => {
               };
 
               if (user.role === Role.ESTABLISHMENT) {
-                  const { data: est } = await supabase.from('establishments').select('*').eq('owner_id', userId).single();
+                  const { data: est } = await supabaseRef.current.from('establishments').select('*').eq('owner_id', userId).single();
                   if (est) {
                       user.establishmentId = est.id;
-                      // NOTA: Ao recarregar a página (F5), não forçamos is_open=true aqui. 
-                      // O estado deve ser preservado do banco.
                       await loadEstablishmentData(est.id);
                   }
               } 
@@ -221,16 +205,15 @@ export const useMockData = () => {
   };
 
   const loadEstablishmentData = async (estId: string) => {
-      if (!supabase) return;
+      if (!supabaseRef.current) return;
       
-      const { data: est, error: estError } = await supabase.from('establishments').select('*').eq('id', estId).single();
+      const { data: est, error: estError } = await supabaseRef.current.from('establishments').select('*').eq('id', estId).single();
       if (estError || !est) return;
 
-      // Importante: Filtramos apenas chamados ativos (não cancelados/finalizados de dias anteriores)
-      const { data: calls } = await supabase.from('calls')
+      const { data: calls } = await supabaseRef.current.from('calls')
         .select('*')
         .eq('establishment_id', estId)
-        .in('status', ['SENT', 'VIEWED']); // Traz apenas o que importa
+        .in('status', ['SENT', 'VIEWED']);
       
       const tablesMap = new Map<string, Table>();
       
@@ -270,6 +253,11 @@ export const useMockData = () => {
       };
 
       setEstablishments(prev => {
+          // Optimization: Check if data actually changed to avoid re-renders
+          const current = prev.get(estId);
+          if (current && JSON.stringify(current) === JSON.stringify(fullEst)) {
+              return prev;
+          }
           const newMap = new Map(prev);
           newMap.set(estId, fullEst);
           return newMap;
@@ -278,10 +266,10 @@ export const useMockData = () => {
   };
 
   const loadCustomerData = async (userId: string) => {
-      if (!supabase) return;
+      if (!supabaseRef.current) return;
       try {
-        const { data: details } = await supabase.from('customer_details').select('*').eq('user_id', userId).maybeSingle();
-        const { data: favs } = await supabase.from('customer_favorites').select('establishment_id').eq('user_id', userId);
+        const { data: details } = await supabaseRef.current.from('customer_details').select('*').eq('user_id', userId).maybeSingle();
+        const { data: favs } = await supabaseRef.current.from('customer_favorites').select('establishment_id').eq('user_id', userId);
         const favIds = favs?.map((f: any) => f.establishment_id) || [];
 
         await Promise.allSettled(favIds.map((id: string) => loadEstablishmentData(id)));
@@ -299,57 +287,54 @@ export const useMockData = () => {
       }
   };
 
-  // --- REALTIME: Lógica Robusta ---
+  // --- REALTIME: Optimized ---
   const subscribeToEstablishmentCalls = useCallback((estId: string) => {
-      if (!supabase) return () => {};
+      const sb = supabaseRef.current || initSupabase();
+      if (!sb) return () => {};
       
-      // Remove canais anteriores para garantir limpeza
       const channelId = `room:${estId}`;
-      supabase.getChannels().forEach((ch: any) => {
-          if (ch.topic === `realtime:${channelId}`) {
-              supabase.removeChannel(ch);
-          }
-      });
+      
+      // Cleanup existing subscription to same channel to avoid duplicates
+      const existing = sb.getChannels().find((c: any) => c.topic === `realtime:${channelId}`);
+      if(existing) return () => {}; 
 
       console.log(`🔌 Conectando Realtime: ${estId}`);
 
-      const channel = supabase.channel(channelId)
-        // Escuta mudanças na tabela CALLS (Chamados e Cancelamentos)
+      const channel = sb.channel(channelId)
         .on('postgres_changes', 
             { event: '*', schema: 'public', table: 'calls', filter: `establishment_id=eq.${estId}` }, 
             (payload: any) => {
-                console.log(`🔔 Evento CALLS (${payload.eventType}) recebido.`);
                 loadEstablishmentData(estId);
             }
         )
-        // Escuta mudanças na tabela ESTABLISHMENTS (Abrir/Fechar)
         .on('postgres_changes',
             { event: '*', schema: 'public', table: 'establishments', filter: `id=eq.${estId}` },
             (payload: any) => {
-                console.log(`🔔 Evento ESTAB (${payload.eventType}) recebido.`);
+                // Ao receber atualização do estabelecimento (ex: fechou), atualiza imediatamente
+                console.log("Establishment Update:", payload);
                 loadEstablishmentData(estId);
             }
         )
         .subscribe();
 
       return () => { 
-          supabase.removeChannel(channel); 
+          // Opcional: Manter conectado pode ser melhor para UX em alguns casos, 
+          // mas para evitar leaks, removemos.
+          sb.removeChannel(channel); 
       }
   }, []); 
 
-  // --- REGRAS DE NEGÓCIO: PONTO 3 e 4 ---
   const login = useCallback(async (email: string, password: string) => {
-      if (!supabase) throw new Error("Supabase não configurado");
+      const sb = supabaseRef.current;
+      if (!sb) throw new Error("Supabase não configurado");
       try {
-          const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+          const { data, error } = await sb.auth.signInWithPassword({ email, password });
           if (error) throw error;
           
           if (data.user) {
-              const { data: est } = await supabase.from('establishments').select('id').eq('owner_id', data.user.id).single();
+              const { data: est } = await sb.from('establishments').select('id').eq('owner_id', data.user.id).single();
               if (est) {
-                  // REGRA 3: Ao entrar, o estabelecimento ABRE automaticamente.
-                  // REGRA 4: Ao abrir, preserva dados anteriores (não zera calls aqui, só muda status).
-                  await supabase.from('establishments').update({ is_open: true }).eq('id', est.id);
+                  await sb.from('establishments').update({ is_open: true }).eq('id', est.id);
                   await loadEstablishmentData(est.id);
               }
 
@@ -361,49 +346,45 @@ export const useMockData = () => {
       }
   }, []);
 
-  // REGRA 2 e 4: Logout APENAS desconecta o usuário localmente. O estabelecimento continua ABERTO no servidor.
   const logout = useCallback(async () => {
-      if (!supabase) {
+      const sb = supabaseRef.current;
+      if (!sb) {
           setCurrentUser(null);
           return;
       }
-      await supabase.auth.signOut();
+      await sb.auth.signOut();
       setCurrentUser(null);
       setEstablishments(new Map());
       setActiveSessions(new Set()); 
   }, []);
 
-  // REGRA 4 (Botão Fechar): Esta função "ZERA" o estabelecimento.
   const closeEstablishmentWorkday = useCallback(async (estId: string) => {
-      if (!supabase) return;
+      const sb = supabaseRef.current;
+      if (!sb) return;
 
       console.log("🔒 Encerrando expediente para:", estId);
 
-      // 1. Fecha o estabelecimento
-      await supabase.from('establishments').update({ is_open: false }).eq('id', estId);
-
-      // 2. Zera todos os atendimentos pendentes (Marca como cancelado pelo sistema/fechamento)
-      // Isso garante que ao abrir amanhã, esteja limpo.
-      await supabase.from('calls')
+      await sb.from('establishments').update({ is_open: false }).eq('id', estId);
+      
+      await sb.from('calls')
         .update({ status: CallStatus.CANCELED })
         .eq('establishment_id', estId)
         .in('status', [CallStatus.SENT, CallStatus.VIEWED]);
 
-      // Atualiza localmente
       await loadEstablishmentData(estId);
   }, []);
 
   const registerEstablishment = useCallback(async (name: string, phone: string, email: string, password: string, photoUrl: string | null, phrase: string) => {
-      if (!supabase) throw new Error("Supabase não iniciado.");
+      const sb = supabaseRef.current;
+      if (!sb) throw new Error("Supabase não iniciado.");
       
       const cleanPhone = sanitizePhone(phone);
       let userId = '';
 
       try {
-        const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
+        const { data: authData, error: authError } = await sb.auth.signUp({ email, password });
         
         if (authError) {
-             // Lógica de user_already_exists simplificada para brevidade
              if (authError.message?.includes("already registered") || authError.code === 'user_already_exists') {
                  throw new Error("E-mail já cadastrado.");
             } else {
@@ -415,7 +396,7 @@ export const useMockData = () => {
 
         await new Promise(r => setTimeout(r, 1000));
 
-        await supabase.from('profiles').upsert({
+        await sb.from('profiles').upsert({
             id: userId,
             email,
             role: Role.ESTABLISHMENT,
@@ -430,10 +411,10 @@ export const useMockData = () => {
             photo_url: photoUrl || `https://picsum.photos/seed/${Date.now()}/400/200`,
             phrase,
             settings: DEFAULT_SETTINGS,
-            is_open: true // Nasce aberto ao registrar
+            is_open: true 
         };
 
-        const { data: estData, error: estError } = await supabase.from('establishments').insert(estPayload).select().single();
+        const { data: estData, error: estError } = await sb.from('establishments').insert(estPayload).select().single();
         if (estError) throw new Error(estError.message);
         return { id: userId, email, role: Role.ESTABLISHMENT, name, establishmentId: estData.id } as User;
 
@@ -443,19 +424,20 @@ export const useMockData = () => {
   }, []);
 
   const registerCustomer = useCallback(async (name: string, email: string, password: string, phone?: string, cep?: string) => {
-      if (!supabase) throw new Error("Supabase não iniciado.");
+      const sb = supabaseRef.current;
+      if (!sb) throw new Error("Supabase não iniciado.");
       let userId = '';
       try {
-          const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
+          const { data: authData, error: authError } = await sb.auth.signUp({ email, password });
           if (authError) {
               if (authError.code === 'user_already_exists') throw new Error("Email já existe.");
               else throw new Error(authError.message);
           } else userId = authData.user!.id;
 
           await new Promise(r => setTimeout(r, 1000));
-          await supabase.from('profiles').upsert({ id: userId, email, role: Role.CUSTOMER, name, status: UserStatus.TESTING });
+          await sb.from('profiles').upsert({ id: userId, email, role: Role.CUSTOMER, name, status: UserStatus.TESTING });
           if (phone || cep) {
-              await supabase.from('customer_details').upsert({ user_id: userId, phone: phone ? sanitizePhone(phone) : null, cep });
+              await sb.from('customer_details').upsert({ user_id: userId, phone: phone ? sanitizePhone(phone) : null, cep });
           }
           return { id: userId, email, role: Role.CUSTOMER, name } as User;
       } catch (err: any) {
@@ -466,43 +448,52 @@ export const useMockData = () => {
   const trackTableSession = useCallback((estId: string, tableNumber: string) => {
       const key = `${estId}:${tableNumber}`;
       setActiveSessions(prev => {
+          if (prev.has(key)) return prev;
           const newSet = new Set(prev);
           newSet.add(key);
           return newSet;
       });
   }, []);
 
-  // REGRA 5: Adicionar chamado -> Realtime deve pegar isso
   const addCall = useCallback(async (establishmentId: string, tableNumber: string, type: CallType) => {
-      if (!supabase) return;
+      const sb = supabaseRef.current;
+      if (!sb) return;
+      
+      // CRITICAL FIX: Check local state first to prevent calls to closed establishments
+      // This is the primary guard against sending calls after the venue closes
+      const est = establishments.get(establishmentId);
+      if (est && !est.isOpen) {
+          alert("O estabelecimento fechou. Atualizando...");
+          // Force reload to update UI
+          await loadEstablishmentData(establishmentId);
+          return;
+      }
+
       trackTableSession(establishmentId, tableNumber);
       try {
-        await supabase.from('calls').insert({
+        await sb.from('calls').insert({
             establishment_id: establishmentId,
             table_number: tableNumber,
             type,
             status: CallStatus.SENT,
             created_at_ts: Date.now()
         });
-        // Não chamamos loadEstablishmentData aqui propositalmente para testar se o Realtime está funcionando (Regra 5)
-        // Mas por segurança de UX, chamamos:
-        // await loadEstablishmentData(establishmentId); 
       } catch (e) {
           console.error(e);
       }
-  }, [trackTableSession]);
+  }, [trackTableSession, establishments]); // dependência em establishments garante que temos o status atualizado
 
   const updateCallStatus = async (estId: string, callId: string, status: CallStatus) => {
-      if (!supabase) return;
-      await supabase.from('calls').update({ status }).eq('id', callId);
-      // Realtime cuida da atualização da tela
+      const sb = supabaseRef.current;
+      if (!sb) return;
+      await sb.from('calls').update({ status }).eq('id', callId);
   };
   
   const leaveTable = useCallback(async (estId: string, tableNumber: string) => {
-      if (!supabase) return;
+      const sb = supabaseRef.current;
+      if (!sb) return;
       try {
-        // REGRA 6: Cliente cancela/sai -> Status deve atualizar rápido
-        await supabase.from('calls')
+        await sb.from('calls')
             .update({ status: CallStatus.CANCELED })
             .eq('establishment_id', estId)
             .eq('table_number', tableNumber)
@@ -532,38 +523,43 @@ export const useMockData = () => {
 
 
   const viewAllCallsForTable = useCallback(async (estId: string, tableNumber: string) => {
-      if (!supabase) return;
-      const { data } = await supabase.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNumber).eq('status', CallStatus.SENT);
+      const sb = supabaseRef.current;
+      if (!sb) return;
+      const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNumber).eq('status', CallStatus.SENT);
       if (data && data.length > 0) {
           const ids = data.map((c: any) => c.id);
-          await supabase.from('calls').update({ status: CallStatus.VIEWED }).in('id', ids);
+          await sb.from('calls').update({ status: CallStatus.VIEWED }).in('id', ids);
       }
   }, []);
 
   const cancelOldestCallByType = useCallback(async (estId: string, tableNumber: string, callType: CallType) => {
-     if (!supabase) return;
-     const { data } = await supabase.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNumber).eq('type', callType).in('status', ['SENT', 'VIEWED']).order('created_at_ts', { ascending: true }).limit(1);
+     const sb = supabaseRef.current;
+     if (!sb) return;
+     const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNumber).eq('type', callType).in('status', ['SENT', 'VIEWED']).order('created_at_ts', { ascending: true }).limit(1);
     if (data && data.length > 0) {
         await updateCallStatus(estId, data[0].id, CallStatus.CANCELED);
     }
   }, []);
 
   const attendOldestCallByType = useCallback(async (estId: string, tableNumber: string, callType: CallType) => {
-      if (!supabase) return;
-       const { data } = await supabase.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNumber).eq('type', callType).in('status', ['SENT', 'VIEWED']).order('created_at_ts', { ascending: true }).limit(1);
+      const sb = supabaseRef.current;
+      if (!sb) return;
+       const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNumber).eq('type', callType).in('status', ['SENT', 'VIEWED']).order('created_at_ts', { ascending: true }).limit(1);
     if (data && data.length > 0) {
         await updateCallStatus(estId, data[0].id, CallStatus.ATTENDED);
     }
   }, []);
 
   const closeTable = useCallback(async (estId: string, tableNumber: string) => {
-      if (!supabase) return;
-      await supabase.from('calls').update({ status: CallStatus.ATTENDED }).eq('establishment_id', estId).eq('table_number', tableNumber).in('status', ['SENT', 'VIEWED']);
+      const sb = supabaseRef.current;
+      if (!sb) return;
+      await sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('establishment_id', estId).eq('table_number', tableNumber).in('status', ['SENT', 'VIEWED']);
   }, []);
 
   const updateSettings = useCallback(async (estId: string, newSettings: Settings) => {
-      if (!supabase) return;
-      await supabase.from('establishments').update({ settings: newSettings }).eq('id', estId);
+      const sb = supabaseRef.current;
+      if (!sb) return;
+      await sb.from('establishments').update({ settings: newSettings }).eq('id', estId);
   }, []);
 
   const getEstablishmentByPhone = useCallback((phone: string) => {
@@ -572,10 +568,11 @@ export const useMockData = () => {
   }, [establishments]);
 
   const searchEstablishmentByPhone = async (phone: string) => {
-      if (!supabase) return null;
+      const sb = supabaseRef.current;
+      if (!sb) return null;
       const cleanSearch = sanitizePhone(phone);
       try {
-        const { data, error } = await supabase.from('establishments').select('*').eq('phone', cleanSearch).limit(1);
+        const { data, error } = await sb.from('establishments').select('*').eq('phone', cleanSearch).limit(1);
         if (error) throw error;
         if (data && data.length > 0) {
             return await loadEstablishmentData(data[0].id);
@@ -587,18 +584,20 @@ export const useMockData = () => {
   }
 
   const favoriteEstablishment = useCallback(async (userId: string, establishmentId: string) => {
-      if (!supabase) return;
-      const { count } = await supabase.from('customer_favorites').select('*', { count: 'exact', head: true }).eq('user_id', userId);
+      const sb = supabaseRef.current;
+      if (!sb) return;
+      const { count } = await sb.from('customer_favorites').select('*', { count: 'exact', head: true }).eq('user_id', userId);
       if (count !== null && count >= 3) throw new Error("Você atingiu o máximo de 3 estabelecimentos favoritos.");
 
-      const { error } = await supabase.from('customer_favorites').insert({ user_id: userId, establishment_id: establishmentId });
+      const { error } = await sb.from('customer_favorites').insert({ user_id: userId, establishment_id: establishmentId });
       if (error && error.code !== '23505') throw error;
       await loadCustomerData(userId);
   }, []);
 
   const unfavoriteEstablishment = useCallback(async (userId: string, establishmentId: string) => {
-      if (!supabase) return;
-      await supabase.from('customer_favorites').delete().eq('user_id', userId).eq('establishment_id', establishmentId);
+      const sb = supabaseRef.current;
+      if (!sb) return;
+      await sb.from('customer_favorites').delete().eq('user_id', userId).eq('establishment_id', establishmentId);
       await loadCustomerData(userId);
   }, []);
 
@@ -638,15 +637,17 @@ export const useMockData = () => {
   }
   
   const updateUserStatus = useCallback(async (userId: string, newStatus: UserStatus) => {
-       if (!supabase) return;
-       await supabase.from('profiles').update({ status: newStatus }).eq('id', userId);
+       const sb = supabaseRef.current;
+       if (!sb) return;
+       await sb.from('profiles').update({ status: newStatus }).eq('id', userId);
        setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: newStatus } : u));
   }, []);
   
   const loginAsAdminBackdoor = useCallback(async () => {}, []);
   const deleteCurrentUser = useCallback(async () => {
-       if(currentUser) {
-           await supabase?.from('profiles').delete().eq('id', currentUser.id);
+       const sb = supabaseRef.current;
+       if(currentUser && sb) {
+           await sb.from('profiles').delete().eq('id', currentUser.id);
            await logout();
        }
   }, [currentUser, logout]);
@@ -676,7 +677,7 @@ export const useMockData = () => {
     activeSessions, 
     login,
     logout,
-    closeEstablishmentWorkday, // EXPORTANDO A NOVA FUNÇÃO
+    closeEstablishmentWorkday,
     loginAsAdminBackdoor,
     registerCustomer,
     registerEstablishment,

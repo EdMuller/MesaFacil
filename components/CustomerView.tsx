@@ -20,41 +20,42 @@ interface CustomerViewProps {
 const CustomerView: React.FC<CustomerViewProps> = ({ establishment: initialEstablishment, tableNumber, onBack }) => {
   const { establishments, subscribeToEstablishmentCalls, trackTableSession } = useAppContext();
   
-  // Obtém versão atualizada do contexto para reagir ao realtime
+  // Obtém versão atualizada do contexto
   const establishment = establishments.get(initialEstablishment.id) || initialEstablishment;
+  const establishmentId = establishment.id; // Primitive for deps
 
-  // SUBSCRIPTION VITAL
   useEffect(() => {
-      const unsubscribe = subscribeToEstablishmentCalls(establishment.id);
+      // Subscribe to Realtime events
+      const unsubscribe = subscribeToEstablishmentCalls(establishmentId);
       
-      // REGISTRA A SESSÃO: Marca que o usuário está ativo "nesta mesa"
-      // Isso permite ter várias mesas abertas ao mesmo tempo em abas/componentes diferentes
-      trackTableSession(establishment.id, tableNumber);
+      // Track session only if open
+      if (establishment.isOpen) {
+          trackTableSession(establishmentId, tableNumber);
+      }
 
       return () => {
           unsubscribe && unsubscribe();
       }
-  }, [establishment.id, tableNumber, subscribeToEstablishmentCalls, trackTableSession]);
+  }, [establishmentId, tableNumber, subscribeToEstablishmentCalls, trackTableSession, establishment.isOpen]); // Added establishment.isOpen to react to changes
 
   // Se o estabelecimento fechar enquanto o cliente está na mesa
   if (!establishment.isOpen) {
       return (
-          <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-              <div className="bg-white p-6 rounded-lg shadow-lg text-center max-w-sm">
-                  <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4 animate-fade-in">
+              <div className="bg-white p-6 rounded-lg shadow-lg text-center max-w-sm border-t-4 border-red-500">
+                  <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                   </div>
-                  <h2 className="text-xl font-bold mb-6 text-gray-800">Estabelecimento Fechado no Momento</h2>
-                  <button onClick={onBack} className="w-full bg-blue-600 text-white font-bold py-2 rounded-md hover:bg-blue-700">
-                      Sair da Mesa
+                  <h2 className="text-xl font-bold mb-2 text-gray-800">Estabelecimento Fechado</h2>
+                  <p className="text-gray-600 mb-6 text-sm">O expediente foi encerrado. Todos os chamados pendentes foram cancelados.</p>
+                  <button onClick={onBack} className="w-full bg-blue-600 text-white font-bold py-2 rounded-md hover:bg-blue-700 transition-colors">
+                      Voltar ao Início
                   </button>
               </div>
           </div>
       )
   }
   
-  // FIX 4: Botão Voltar apenas navega para a tela anterior (Home), 
-  // NÃO limpa a mesa e NEM cancela chamados. Isso permite abrir outra mesa.
   const handleBack = () => {
       onBack();
   }
