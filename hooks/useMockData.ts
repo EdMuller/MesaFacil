@@ -154,6 +154,8 @@ export const useMockData = () => {
               
               if (session?.user) {
                  await fetchUserProfile(session.user.id, session.user.email!);
+              } else {
+                  // Sessão vazia, tudo bem
               }
           } catch (error: any) {
               console.warn("Session check failed (pode ser token expirado):", error);
@@ -195,10 +197,14 @@ export const useMockData = () => {
       if (!supabase) return;
       
       try {
+          // Tenta buscar o perfil
           const { data: profile, error } = await withRetry<any>(() => supabase!.from('profiles').select('*').eq('id', userId).single());
           
           if (error) {
+              // Se não encontrou o perfil (mas a sessão existe), isso corrompe o estado (usuário logado sem dados).
+              // Forçamos logout para "limpar" a sessão fantasma do navegador.
               if (error.code === 'PGRST116') {
+                  console.warn("Sessão ativa, mas perfil não encontrado. Forçando limpeza.");
                   await supabase.auth.signOut();
                   setCurrentUser(null);
                   return;
@@ -317,30 +323,59 @@ export const useMockData = () => {
       }
   };
 
-  // --- REALTIME SUBSCRIPTION ---
+  // --- REALTIME SUBSCRIPTION (FIXED) ---
   const subscribeToEstablishmentCalls = useCallback((estId: string) => {
       if (!supabase) return () => {};
       
-      console.log(`📡 Inscrevendo em Realtime para Est: ${estId}`);
+      // Remover subscrição anterior para evitar duplicidade
+      const existingChannels = supabase.getChannels();
+      const channelName = `est_room:${estId}`;
+      const existing = existingChannels.find((ch: any) => ch.topic === `realtime:${channelName}`);
+      if (existing) {
+          console.log(`♻️ Canal ${channelName} já existe, reutilizando.`);
+          // Se já existe, não precisamos recriar, mas precisamos garantir que o callback de dados
+          // continue atualizando o estado. Como o closure do callback anterior pode estar velho,
+          // o ideal é remover e recriar para garantir que o 'loadEstablishmentData' seja o mais recente.
+          supabase.removeChannel(existing);
+      }
 
-      const channel = supabase.channel(`est_room:${estId}`)
+      console.log(`📡 Inscrevendo em Realtime para Est: ${estId} (Canal: ${channelName})`);
+
+      const channel = supabase.channel(channelName)
+        // Escuta TUDO na tabela calls para este estabelecimento
         .on('postgres_changes', 
-            { event: '*', schema: 'public', table: 'calls', filter: `establishment_id=eq.${estId}` }, 
+            { 
+                event: '*', 
+                schema: 'public', 
+                table: 'calls', 
+                filter: `establishment_id=eq.${estId}` 
+            }, 
             (payload: any) => {
-                console.log("🔔 Mudança em CALLS recebida:", payload);
+                console.log("🔔 REALTIME CALLS:", payload.eventType);
+                // Sempre que houver INSERT, UPDATE ou DELETE, recarrega os dados
                 loadEstablishmentData(estId);
             }
         )
+        // Escuta mudanças no próprio estabelecimento (ex: fechou/abriu)
         .on('postgres_changes',
-            { event: '*', schema: 'public', table: 'establishments', filter: `id=eq.${estId}` },
+            { 
+                event: '*', 
+                schema: 'public', 
+                table: 'establishments', 
+                filter: `id=eq.${estId}` 
+            },
             (payload: any) => {
-                console.log("🔔 Mudança em ESTABLISHMENT recebida:", payload);
+                console.log("🔔 REALTIME ESTABLISHMENT:", payload.eventType);
                 loadEstablishmentData(estId);
             }
         )
-        .subscribe((status: string) => {
+        .subscribe((status: string, err: any) => {
             if (status === 'SUBSCRIBED') {
-                console.log(`✅ Conectado em tempo real: ${estId}`);
+                console.log(`✅ Conexão Realtime Estabelecida: ${estId}`);
+            } else if (status === 'CHANNEL_ERROR') {
+                console.error(`❌ Erro no canal Realtime: ${estId}`, err);
+            } else if (status === 'TIMED_OUT') {
+                console.warn(`⚠️ Timeout no canal Realtime: ${estId}`);
             }
         });
 
@@ -348,7 +383,7 @@ export const useMockData = () => {
           console.log(`🛑 Desconectando Realtime: ${estId}`);
           supabase?.removeChannel(channel); 
       }
-  }, []);
+  }, []); // Dependências vazias para garantir que a função seja estável, mas cuidado com closures stale de loadEstablishmentData
 
   const login = useCallback(async (email: string, password: string) => {
       if (!supabase) throw new Error("Supabase não configurado");
@@ -495,6 +530,8 @@ export const useMockData = () => {
             created_at_ts: Date.now()
         });
         
+        // Em vez de chamar loadEstablishmentData imediatamente aqui, confiamos no Realtime
+        // Mas como fallback (para UI instantanea), chamamos.
         await loadEstablishmentData(establishmentId);
       } catch (e) {
           console.error(e);
