@@ -37,7 +37,6 @@ interface DBCall {
 let supabaseInstance: any = null;
 
 const initSupabase = () => {
-    // Evita recriar instância se já existe
     if (supabaseInstance) return supabaseInstance;
 
     try {
@@ -58,7 +57,7 @@ const initSupabase = () => {
                 },
                 realtime: {
                     params: {
-                        eventsPerSecond: 2, // Reduzido para evitar sobrecarga
+                        eventsPerSecond: 10, 
                     },
                 },
             });
@@ -106,11 +105,8 @@ export const useMockData = () => {
   const [establishments, setEstablishments] = useState<Map<string, Establishment>>(new Map());
   const [customerProfiles, setCustomerProfiles] = useState<Map<string, CustomerProfile>>(new Map());
   const [isInitialized, setIsInitialized] = useState(false);
-  
-  // Rastreamento local de sessões
   const [activeSessions, setActiveSessions] = useState<Set<string>>(new Set());
 
-  // Refs para evitar loops em useEffects
   const supabaseRef = useRef<any>(null);
 
   useEffect(() => {
@@ -125,13 +121,11 @@ export const useMockData = () => {
 
           try {
               const { data: { session }, error } = await client.auth.getSession();
-              
               if (session?.user) {
                  await fetchUserProfile(session.user.id, session.user.email!);
               }
           } catch (error: any) {
               console.warn("Check session warning:", error);
-              // Não faz signOut automático aqui para evitar loops de recarregamento
           } finally {
               setIsInitialized(true);
           }
@@ -253,11 +247,8 @@ export const useMockData = () => {
       };
 
       setEstablishments(prev => {
-          // Optimization: Check if data actually changed to avoid re-renders
-          const current = prev.get(estId);
-          if (current && JSON.stringify(current) === JSON.stringify(fullEst)) {
-              return prev;
-          }
+          // CORREÇÃO: Removemos a verificação JSON.stringify que bloqueava atualizações sutis.
+          // Sempre retornamos um novo Map para garantir que o React detecte a mudança e atualize a UI.
           const newMap = new Map(prev);
           newMap.set(estId, fullEst);
           return newMap;
@@ -287,39 +278,46 @@ export const useMockData = () => {
       }
   };
 
-  // --- REALTIME: Optimized ---
+  // --- REALTIME SUBSCRIPTION (CORREÇÃO DEFINITIVA) ---
   const subscribeToEstablishmentCalls = useCallback((estId: string) => {
       const sb = supabaseRef.current || initSupabase();
       if (!sb) return () => {};
       
       const channelId = `room:${estId}`;
-      
-      // Cleanup existing subscription to same channel to avoid duplicates
-      const existing = sb.getChannels().find((c: any) => c.topic === `realtime:${channelId}`);
-      if(existing) return () => {}; 
+      const topic = `realtime:${channelId}`;
 
-      console.log(`🔌 Conectando Realtime: ${estId}`);
+      // CORREÇÃO: Força a remoção de qualquer canal anterior com o mesmo tópico
+      // Isso garante que não tenhamos ouvintes "fantasmas" desconectados.
+      const existing = sb.getChannels().find((c: any) => c.topic === topic);
+      if (existing) {
+          console.log(`♻️ Reiniciando canal para ${estId}`);
+          sb.removeChannel(existing);
+      }
+
+      console.log(`🔌 Conectando Realtime (Novo): ${estId}`);
 
       const channel = sb.channel(channelId)
         .on('postgres_changes', 
             { event: '*', schema: 'public', table: 'calls', filter: `establishment_id=eq.${estId}` }, 
             (payload: any) => {
+                console.log(`🔔 Chamado Recebido/Atualizado: ${payload.eventType}`);
                 loadEstablishmentData(estId);
             }
         )
         .on('postgres_changes',
             { event: '*', schema: 'public', table: 'establishments', filter: `id=eq.${estId}` },
             (payload: any) => {
-                // Ao receber atualização do estabelecimento (ex: fechou), atualiza imediatamente
-                console.log("Establishment Update:", payload);
+                console.log(`🔔 Status Estabelecimento Alterado: ${payload.eventType}`);
                 loadEstablishmentData(estId);
             }
         )
-        .subscribe();
+        .subscribe((status: string) => {
+            if (status === 'SUBSCRIBED') console.log(`✅ Conectado a ${estId}`);
+        });
 
       return () => { 
-          // Opcional: Manter conectado pode ser melhor para UX em alguns casos, 
-          // mas para evitar leaks, removemos.
+          // Importante limpar ao desmontar o componente
+          console.log(`🛑 Desconectando ${estId}`);
           sb.removeChannel(channel); 
       }
   }, []); 
@@ -459,12 +457,9 @@ export const useMockData = () => {
       const sb = supabaseRef.current;
       if (!sb) return;
       
-      // CRITICAL FIX: Check local state first to prevent calls to closed establishments
-      // This is the primary guard against sending calls after the venue closes
       const est = establishments.get(establishmentId);
       if (est && !est.isOpen) {
           alert("O estabelecimento fechou. Atualizando...");
-          // Force reload to update UI
           await loadEstablishmentData(establishmentId);
           return;
       }
@@ -478,10 +473,12 @@ export const useMockData = () => {
             status: CallStatus.SENT,
             created_at_ts: Date.now()
         });
+        // Feedback visual imediato em caso de falha silenciosa do realtime
+        // await loadEstablishmentData(establishmentId);
       } catch (e) {
           console.error(e);
       }
-  }, [trackTableSession, establishments]); // dependência em establishments garante que temos o status atualizado
+  }, [trackTableSession, establishments]);
 
   const updateCallStatus = async (estId: string, callId: string, status: CallStatus) => {
       const sb = supabaseRef.current;
