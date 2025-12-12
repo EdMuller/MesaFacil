@@ -1,7 +1,11 @@
 
 import { Settings, CallType, CallStatus } from './types';
 
-export const POLLING_INTERVAL = 20000; // 20 seconds
+// REQ: Atualizações a cada 30 segundos
+export const POLLING_INTERVAL = 30000; 
+
+// Se o estabelecimento não der sinal de vida por 2 minutos (4 ciclos de 30s), consideramos fechado visualmente para o cliente
+export const HEARTBEAT_THRESHOLD = 120000; 
 
 export const CALL_TYPE_INFO: { [key in CallType]: { label: string; verb: string } } = {
   [CallType.WAITER]: { label: 'Garçom', verb: 'Chamar Garçom' },
@@ -24,7 +28,6 @@ export const DEFAULT_SETTINGS: Settings = {
   totalTables: 20,
 };
 
-// This initial data is now used to seed the system if localStorage is empty.
 export const SEED_ESTABLISHMENT = {
   id: 'pizzaria-do-ze-123',
   ownerId: 'admin-123',
@@ -37,9 +40,7 @@ export const SEED_ESTABLISHMENT = {
 
 export const APP_URL = "https://mesa-facil-drab.vercel.app/";
 
-// --- CONFIGURAÇÃO DO SERVIDOR ---
-// Preencha aqui para que o aplicativo funcione sem pedir login de configuração.
 export const SUPABASE_CONFIG = {
-    url: "https://romsbbyupakyqssotygp.supabase.co", // Cole sua URL do Supabase aqui (dentro das aspas)
-    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvbXNiYnl1cGFreXFzc290eWdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMzE4OTgsImV4cCI6MjA3OTcwNzg5OH0.qe1QIlNfmjrVtYtb5A65aCKnigWiepSWOyGoiR6SxNo" // Cole sua Anon Key do Supabase aqui (dentro das aspas)
+    url: "https://romsbbyupakyqssotygp.supabase.co", 
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvbXNiYnl1cGFreXFzc290eWdwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQxMzE4OTgsImV4cCI6MjA3OTcwNzg5OH0.qe1QIlNfmjrVtYtb5A65aCKnigWiepSWOyGoiR6SxNo"
 };
