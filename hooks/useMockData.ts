@@ -1,8 +1,7 @@
-
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Establishment, Table, CallType, CallStatus, Settings, SemaphoreStatus, User, Role, CustomerProfile, UserStatus } from '../types';
-import { DEFAULT_SETTINGS, SUPABASE_CONFIG, POLLING_INTERVAL, HEARTBEAT_THRESHOLD } from '../constants';
+import { DEFAULT_SETTINGS, SUPABASE_CONFIG, POLLING_INTERVAL } from '../constants';
 
 // --- Types for DB Tables ---
 interface DBCall {
@@ -31,7 +30,6 @@ const initSupabase = () => {
         if (url && key && url.startsWith('http')) {
             supabaseInstance = createClient(url, key, {
                 auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
-                // Realtime desativado no cliente para evitar loops, usaremos Polling
                 realtime: { params: { eventsPerSecond: 1 } } 
             });
         }
@@ -50,14 +48,21 @@ export const useMockData = () => {
   const [customerProfiles, setCustomerProfiles] = useState<Map<string, CustomerProfile>>(new Map());
   const [isInitialized, setIsInitialized] = useState(false);
   const [activeSessions, setActiveSessions] = useState<Set<string>>(new Set());
-  const [isUpdating, setIsUpdating] = useState(false); // UI Feedback
+  const [isUpdating, setIsUpdating] = useState(false); 
 
   const supabaseRef = useRef<any>(null);
 
-  // --- 1. Inicialização Segura ---
-  useEffect(() => {
+  // Helper seguro para obter cliente
+  const getSb = () => {
+      if (supabaseRef.current) return supabaseRef.current;
       const client = initSupabase();
       supabaseRef.current = client;
+      return client;
+  }
+
+  // --- 1. Inicialização Segura ---
+  useEffect(() => {
+      const client = getSb();
       
       const boot = async () => {
           if (!client) { setIsInitialized(true); return; }
@@ -70,7 +75,6 @@ export const useMockData = () => {
       };
       boot();
 
-      // Listener de Auth apenas para limpar estado no Logout
       const { data: { subscription } } = client?.auth.onAuthStateChange((event: string, session: any) => {
           if (event === 'SIGNED_OUT') {
               setCurrentUser(null);
@@ -82,19 +86,17 @@ export const useMockData = () => {
       return () => subscription.unsubscribe();
   }, []);
 
-  // --- 2. Lógica de Polling (Ciclo de 30s) ---
+  // --- 2. Polling (30s) ---
   useEffect(() => {
       if (!currentUser) return;
 
       const cycle = async () => {
-          setIsUpdating(true); // Feedback visual (Regra 3)
+          setIsUpdating(true); 
           try {
-              // A. Se for Estabelecimento: Envia Heartbeat e Busca Chamados
               if (currentUser.role === Role.ESTABLISHMENT && currentUser.establishmentId) {
                   await sendHeartbeat(currentUser.establishmentId);
                   await loadEstablishmentData(currentUser.establishmentId);
               } 
-              // B. Se for Cliente: Atualiza Favoritos e Mesas Ativas
               else if (currentUser.role === Role.CUSTOMER) {
                   const profile = customerProfiles.get(currentUser.id);
                   if (profile?.favoritedEstablishmentIds) {
@@ -104,48 +106,35 @@ export const useMockData = () => {
           } catch (e) {
               console.error("Polling error:", e);
           } finally {
-              // Pequeno delay para o usuário perceber que atualizou
               setTimeout(() => setIsUpdating(false), 1000);
           }
       };
 
-      // Executa imediatamente ao logar/montar
-      cycle();
-
-      // Configura o intervalo de 30s
       const intervalId = setInterval(cycle, POLLING_INTERVAL);
       return () => clearInterval(intervalId);
   }, [currentUser?.id, currentUser?.role, currentUser?.establishmentId]);
 
-
-  // --- Helpers de Dados ---
+  // --- Core Data Loaders ---
 
   const sendHeartbeat = async (estId: string) => {
-      if (!supabaseRef.current) return;
-      // Atualiza o campo last_sign_in_at (ou cria um campo especifico se tivesse migration, 
-      // mas vamos usar o update do is_open como trigger de "estou vivo")
-      // Regra 1: Mantém is_open = true enquanto estiver rodando.
-      await supabaseRef.current.from('establishments')
-        .update({ is_open: true, created_at: new Date().toISOString() }) // Usando created_at como "last_active" hack ou se tivesse coluna especifica
+      const sb = getSb();
+      if (!sb) return;
+      await sb.from('establishments')
+        .update({ is_open: true, created_at: new Date().toISOString() })
         .eq('id', estId);
   };
 
   const loadEstablishmentData = async (estId: string) => {
-      if (!supabaseRef.current) return;
+      const sb = getSb();
+      if (!sb) return null;
       
-      const { data: est } = await supabaseRef.current.from('establishments').select('*').eq('id', estId).single();
-      if (!est) return;
+      const { data: est, error } = await sb.from('establishments').select('*').eq('id', estId).single();
+      if (error || !est) return null;
 
-      // Regra 1 e 2: Verifica "Heartbeat" (simulado pela data de atualização ou status).
-      // Se a última atualização foi há muito tempo, consideramos fechado visualmente, 
-      // MAS os dados persistem.
-      // Como não criamos coluna heartbeat, vamos confiar no is_open, 
-      // mas o App do Estabelecimento deve setar is_open=false ao fazer Logout explícito.
-      
-      const { data: calls } = await supabaseRef.current.from('calls')
+      const { data: calls } = await sb.from('calls')
         .select('*')
         .eq('establishment_id', estId)
-        .in('status', ['SENT', 'VIEWED']); // Traz apenas ativos
+        .in('status', ['SENT', 'VIEWED']); 
       
       const tablesMap = new Map<string, Table>();
       calls?.forEach((c: DBCall) => {
@@ -154,7 +143,6 @@ export const useMockData = () => {
           tablesMap.set(c.table_number, existing);
       });
 
-      // Preenche mesas vazias
       const totalTables = est.settings?.totalTables || DEFAULT_SETTINGS.totalTables;
       for(let i=1; i<=totalTables; i++) {
           const num = i.toString();
@@ -165,13 +153,13 @@ export const useMockData = () => {
           id: est.id,
           ownerId: est.owner_id,
           name: est.name,
-          phone: est.phone,
+          phone: (est as any).phone,
           photoUrl: est.photo_url,
           phrase: est.phrase,
           settings: est.settings || DEFAULT_SETTINGS,
           tables: tablesMap,
           eventLog: [],
-          isOpen: est.is_open === true // DB é a verdade
+          isOpen: est.is_open === true
       };
 
       setEstablishments(prev => new Map(prev).set(estId, fullEst));
@@ -179,15 +167,17 @@ export const useMockData = () => {
   };
 
   const fetchUserProfile = async (userId: string, email: string) => {
-      if (!supabaseRef.current) return;
-      const { data: profile } = await supabaseRef.current.from('profiles').select('*').eq('id', userId).single();
+      const sb = getSb();
+      if (!sb) return;
+      
+      const { data: profile } = await sb.from('profiles').select('*').eq('id', userId).single();
       
       if (profile) {
           const user: User = {
               id: profile.id, email, password: '', role: profile.role as Role, name: profile.name, status: profile.status
           };
           if (user.role === Role.ESTABLISHMENT) {
-              const { data: est } = await supabaseRef.current.from('establishments').select('id').eq('owner_id', userId).single();
+              const { data: est } = await sb.from('establishments').select('id').eq('owner_id', userId).single();
               if (est) user.establishmentId = est.id;
           } else {
               await loadCustomerData(userId);
@@ -197,66 +187,88 @@ export const useMockData = () => {
   };
 
   const loadCustomerData = async (userId: string) => {
-      if (!supabaseRef.current) return;
-      const { data: favs } = await supabaseRef.current.from('customer_favorites').select('establishment_id').eq('user_id', userId);
+      const sb = getSb();
+      if (!sb) return;
+      const { data: favs } = await sb.from('customer_favorites').select('establishment_id').eq('user_id', userId);
       const favIds = favs?.map((f: any) => f.establishment_id) || [];
-      const { data: details } = await supabaseRef.current.from('customer_details').select('*').eq('user_id', userId).maybeSingle();
+      const { data: details } = await sb.from('customer_details').select('*').eq('user_id', userId).maybeSingle();
 
       const profile: CustomerProfile = { userId, favoritedEstablishmentIds: favIds, phone: (details as any)?.phone, cep: (details as any)?.cep };
       setCustomerProfiles(prev => new Map(prev).set(userId, profile));
       
-      // Carrega dados iniciais dos favoritos
-      favIds.forEach((id: string) => loadEstablishmentData(id));
+      // Carrega sequencialmente para não engasgar conexões ruins
+      for (const id of favIds) {
+          await loadEstablishmentData(id);
+      }
   };
 
-  // --- Ações do Usuário ---
+  // --- Ações do Usuário (Hardened) ---
 
   const login = useCallback(async (email: string, password: string) => {
-      const sb = supabaseRef.current;
-      if (!sb) throw new Error("Sistema offline.");
+      const sb = getSb(); // Garante instancia
+      if (!sb) throw new Error("Erro de conexão. Verifique a internet.");
       
+      // 1. Auth Supabase
       const { data, error } = await sb.auth.signInWithPassword({ email, password });
       if (error) throw new Error("Email ou senha inválidos.");
+      if (!data.user) throw new Error("Usuário não encontrado.");
 
-      if (data.user) {
-          // Carrega perfil
-          await fetchUserProfile(data.user.id, data.user.email!);
-          
-          // Se for estabelecimento, marcamos como aberto no DB
-          const { data: est } = await sb.from('establishments').select('id').eq('owner_id', data.user.id).single();
-          if (est) {
-              await sb.from('establishments').update({ is_open: true }).eq('id', est.id);
-          }
+      // 2. Carrega Perfil (Força espera)
+      await fetchUserProfile(data.user.id, data.user.email!);
+      
+      // 3. Se for estabelecimento, abre imediatamente
+      const { data: est } = await sb.from('establishments').select('id').eq('owner_id', data.user.id).single();
+      if (est) {
+          await sb.from('establishments').update({ is_open: true }).eq('id', est.id);
+          await loadEstablishmentData(est.id); // Já carrega dados iniciais
       }
+      
   }, []);
 
+  const searchEstablishmentByPhone = async (phone: string) => {
+      const sb = getSb();
+      if (!sb) return null;
+      
+      const cleanSearch = sanitizePhone(phone);
+      if (!cleanSearch) throw new Error("Digite apenas números.");
+
+      try {
+        // Busca ID
+        const { data, error } = await sb.from('establishments').select('id').eq('phone', cleanSearch).maybeSingle();
+        
+        if (error) throw error;
+        if (!data) return null;
+
+        // Carrega Dados Completos
+        const fullData = await loadEstablishmentData(data.id);
+        return fullData;
+      } catch (e) {
+          console.error("Erro na busca:", e);
+          throw new Error("Erro ao buscar estabelecimento.");
+      }
+  }
+
   const logout = useCallback(async () => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       if (!sb) return;
       
-      // Regra 1: Ao sair "direito" (Logout), fechamos o estabelecimento
       if (currentUser?.role === Role.ESTABLISHMENT && currentUser.establishmentId) {
           await sb.from('establishments').update({ is_open: false }).eq('id', currentUser.establishmentId);
       }
-
       await sb.auth.signOut();
-      // O listener do onAuthStateChange limpará o estado local
   }, [currentUser]);
 
-  // Função para verificar chamados pendentes ao entrar (Regra 2)
+  // --- Outras Ações ---
+
   const checkPendingCallsOnLogin = async (estId: string): Promise<boolean> => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       if (!sb) return false;
-      const { count } = await sb.from('calls')
-        .select('*', { count: 'exact', head: true })
-        .eq('establishment_id', estId)
-        .in('status', ['SENT', 'VIEWED']);
+      const { count } = await sb.from('calls').select('*', { count: 'exact', head: true }).eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']);
       return (count || 0) > 0;
   };
 
-  // Botão "Encerrar Expediente" (Zera tudo)
   const closeEstablishmentWorkday = useCallback(async (estId: string) => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       if (!sb) return;
       await sb.from('establishments').update({ is_open: false }).eq('id', estId);
       await sb.from('calls').update({ status: CallStatus.CANCELED }).eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']);
@@ -264,21 +276,14 @@ export const useMockData = () => {
   }, []);
 
   const addCall = useCallback(async (estId: string, tableNum: string, type: CallType) => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       if (!sb) return;
-      
-      // Regra 4: Adiciona chamado
-      await sb.from('calls').insert({
-          establishment_id: estId, table_number: tableNum, type, status: CallStatus.SENT, created_at_ts: Date.now()
-      });
-      // Atualização visual imediata (Optimistic UI) ou espera o próximo ciclo de 30s?
-      // Você pediu "informado imediatamente no aplicativo do cliente".
+      await sb.from('calls').insert({ establishment_id: estId, table_number: tableNum, type, status: CallStatus.SENT, created_at_ts: Date.now() });
       await loadEstablishmentData(estId); 
   }, []);
 
-  // Outras funções de apoio mantidas simples
   const registerCustomer = async (name: string, email: string, password: string) => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       const { data, error } = await sb.auth.signUp({ email, password });
       if (error) throw error;
       await sb.from('profiles').insert({ id: data.user!.id, email, role: Role.CUSTOMER, name, status: UserStatus.TESTING });
@@ -286,19 +291,17 @@ export const useMockData = () => {
   };
 
   const registerEstablishment = async (name: string, phone: string, email: string, password: string, photo: string | null, phrase: string) => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       const { data, error } = await sb.auth.signUp({ email, password });
       if (error) throw error;
       const uid = data.user!.id;
       await sb.from('profiles').insert({ id: uid, email, role: Role.ESTABLISHMENT, name, status: UserStatus.TESTING });
-      await sb.from('establishments').insert({ 
-          owner_id: uid, name, phone: sanitizePhone(phone), photo_url: photo, phrase, settings: DEFAULT_SETTINGS, is_open: true 
-      });
+      await sb.from('establishments').insert({ owner_id: uid, name, phone: sanitizePhone(phone), photo_url: photo, phrase, settings: DEFAULT_SETTINGS, is_open: true });
       return { name } as User;
   };
 
   const attendOldestCallByType = async (estId: string, tableNum: string, type: CallType) => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('type', type).in('status', ['SENT', 'VIEWED']).order('created_at_ts', {ascending: true}).limit(1);
       if (data?.[0]) {
           await sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('id', data[0].id);
@@ -307,7 +310,7 @@ export const useMockData = () => {
   };
 
   const cancelOldestCallByType = async (estId: string, tableNum: string, type: CallType) => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('type', type).in('status', ['SENT', 'VIEWED']).order('created_at_ts', {ascending: true}).limit(1);
       if (data?.[0]) {
           await sb.from('calls').update({ status: CallStatus.CANCELED }).eq('id', data[0].id);
@@ -316,29 +319,28 @@ export const useMockData = () => {
   };
 
   const viewAllCallsForTable = async (estId: string, tableNum: string) => {
-      const sb = supabaseRef.current;
-      // Busca e atualiza para VIEWED
+      const sb = getSb();
       const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('status', CallStatus.SENT);
       if (data?.length) {
           const ids = data.map((c: any) => c.id);
           await sb.from('calls').update({ status: CallStatus.VIEWED }).in('id', ids);
-          // Não recarrega tudo imediatamente para evitar pulo de tela, deixa o ciclo de 30s ou chamada explicita
-          // await loadEstablishmentData(estId);
       }
   };
 
   const closeTable = async (estId: string, tableNum: string) => {
-      const sb = supabaseRef.current;
+      const sb = getSb();
       await sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('establishment_id', estId).eq('table_number', tableNum).in('status', ['SENT', 'VIEWED']);
       await loadEstablishmentData(estId);
   };
   
   const favoriteEstablishment = async (uid: string, estId: string) => {
-      await supabaseRef.current?.from('customer_favorites').insert({ user_id: uid, establishment_id: estId });
+      const sb = getSb();
+      await sb?.from('customer_favorites').insert({ user_id: uid, establishment_id: estId });
       await loadCustomerData(uid);
   }
   const unfavoriteEstablishment = async (uid: string, estId: string) => {
-      await supabaseRef.current?.from('customer_favorites').delete().eq('user_id', uid).eq('establishment_id', estId);
+      const sb = getSb();
+      await sb?.from('customer_favorites').delete().eq('user_id', uid).eq('establishment_id', estId);
       await loadCustomerData(uid);
   }
 
@@ -356,7 +358,7 @@ export const useMockData = () => {
   const getCallTypeSemaphoreStatus = (table: Table, type: CallType, settings: Settings): SemaphoreStatus => {
       const active = table.calls.filter(c => c.type === type && (c.status === 'SENT' || c.status === 'VIEWED'));
       if (!active.length) return SemaphoreStatus.IDLE;
-      const oldest = active[0]; // Simplificado
+      const oldest = active[0]; 
       const elapsed = (Date.now() - oldest.createdAt) / 1000;
       if (elapsed > settings.timeYellow) return SemaphoreStatus.RED;
       return SemaphoreStatus.GREEN;
@@ -369,18 +371,14 @@ export const useMockData = () => {
       registerCustomer, registerEstablishment,
       addCall, cancelOldestCallByType, attendOldestCallByType, viewAllCallsForTable, closeTable,
       getEstablishmentByPhone: (p: string) => Array.from(establishments.values()).find((e: Establishment) => e.phone === sanitizePhone(p)),
-      searchEstablishmentByPhone: async (p: string) => {
-          const { data } = await supabaseRef.current.from('establishments').select('*').eq('phone', sanitizePhone(p)).limit(1);
-          if (data?.[0]) return loadEstablishmentData(data[0].id);
-          return null;
-      },
+      searchEstablishmentByPhone,
       favoriteEstablishment, unfavoriteEstablishment,
-      updateSettings: async (id: string, s: Settings) => { await supabaseRef.current?.from('establishments').update({ settings: s }).eq('id', id); },
+      updateSettings: async (id: string, s: Settings) => { await getSb()?.from('establishments').update({ settings: s }).eq('id', id); },
       getTableSemaphoreStatus, getCallTypeSemaphoreStatus,
       trackTableSession: (eid: string, t: string) => setActiveSessions(prev => new Set(prev).add(`${eid}:${t}`)),
-      clearAllSessions: async () => {}, // Simplificado
+      clearAllSessions: async () => {}, 
       deleteCurrentUser: async () => {},
       updateUserStatus: async () => {},
-      subscribeToEstablishmentCalls: () => () => {}, // NO-OP: Usando Polling
+      subscribeToEstablishmentCalls: () => () => {}, 
   }
 };

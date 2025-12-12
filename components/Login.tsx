@@ -12,23 +12,22 @@ const Login: React.FC<LoginProps> = ({ onGoToRegister, onBack }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setIsLoading(true);
         try {
             await login(email, password);
         } catch (err: any) {
             console.error(err);
-            
-            // Tratamento de erro específico para login inválido
             if (err.message.includes("Invalid login credentials") || err.message.includes("Falha no login")) {
                 setError("Usuário não encontrado ou senha incorreta.");
-                setEmail('');
-                setPassword('');
             } else {
                 setError(err.message || 'Falha no login.');
             }
+            setIsLoading(false);
         }
     }
 
@@ -52,6 +51,7 @@ const Login: React.FC<LoginProps> = ({ onGoToRegister, onBack }) => {
                             onChange={(e) => setEmail(e.target.value)}
                             className="mt-1 w-full text-lg p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                             required
+                            disabled={isLoading}
                         />
                     </div>
                      <div>
@@ -63,10 +63,15 @@ const Login: React.FC<LoginProps> = ({ onGoToRegister, onBack }) => {
                             onChange={(e) => setPassword(e.target.value)}
                             className="mt-1 w-full text-lg p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                             required
+                            disabled={isLoading}
                         />
                     </div>
-                    <button type="submit" className="w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-300">
-                        Entrar
+                    <button 
+                        type="submit" 
+                        disabled={isLoading}
+                        className={`w-full text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors duration-300 ${isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                    >
+                        {isLoading ? 'Entrando...' : 'Entrar'}
                     </button>
                 </form>
                 <div className="mt-8">
