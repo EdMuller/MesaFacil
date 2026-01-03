@@ -49,30 +49,43 @@ const UserManagementSection = () => {
     const { users, registerCustomer, registerEstablishment, updateUserStatus } = useAppContext();
     const [formType, setFormType] = useState<Role.CUSTOMER | Role.ESTABLISHMENT>(Role.CUSTOMER);
     const [feedback, setFeedback] = useState('');
+    const [isProcessing, setIsProcessing] = useState<string | null>(null);
 
     const handleSubmit = async (formData: any) => {
         try {
             let newUser;
             if (formType === Role.ESTABLISHMENT) {
-                // Fix: Added await since register functions are async
                 newUser = await registerEstablishment(formData.name, formData.phone, formData.email, formData.password, formData.photo, formData.phrase || '');
             } else {
-                // Fix: Added await since register functions are async
                 newUser = await registerCustomer(formData.name, formData.email, formData.password);
             }
             setFeedback(`Usuário '${newUser.name}' criado com sucesso!`);
             setTimeout(() => setFeedback(''), 3000);
-            return true; // Indicate success
+            return true;
         } catch (err: any) {
-            setFeedback(err.message);
-            return false; // Indicate failure
+            setFeedback("Erro: " + err.message);
+            return false;
         }
     };
+
+    const handleStatusUpdate = async (userId: string, status: UserStatus) => {
+        setIsProcessing(userId);
+        try {
+            await updateUserStatus(userId, status);
+            setFeedback("Status atualizado com sucesso!");
+            setTimeout(() => setFeedback(''), 2000);
+        } catch (e) {
+            alert("Erro ao salvar no banco. Verifique sua conexão.");
+        } finally {
+            setIsProcessing(null);
+        }
+    }
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="bg-white p-6 rounded-lg shadow">
                 <h2 className="text-2xl font-bold mb-4">Usuários Cadastrados</h2>
+                {feedback && <div className="mb-4 p-2 bg-blue-50 text-blue-700 text-xs font-bold rounded border border-blue-100 text-center">{feedback}</div>}
                 <div className="max-h-96 overflow-y-auto space-y-2">
                     {users.filter(u => u.role !== Role.ADMIN).map(user => (
                         <div key={user.id} className="p-3 border rounded-md bg-gray-50 flex flex-col sm:flex-row justify-between sm:items-center">
@@ -80,16 +93,18 @@ const UserManagementSection = () => {
                                 <p className="font-semibold">{user.name} <span className="text-xs font-normal bg-blue-100 text-blue-700 px-1 py-0.5 rounded-full">{user.role}</span></p>
                                 <p className="text-sm text-gray-600">{user.email}</p>
                            </div>
-                           <div className="mt-2 sm:mt-0">
+                           <div className="mt-2 sm:mt-0 relative">
                                 <select 
                                     value={user.status}
-                                    onChange={(e) => updateUserStatus(user.id, e.target.value as UserStatus)}
-                                    className="w-full sm:w-auto p-1 border border-gray-300 rounded-md text-sm"
+                                    disabled={isProcessing === user.id}
+                                    onChange={(e) => handleStatusUpdate(user.id, e.target.value as UserStatus)}
+                                    className={`w-full sm:w-auto p-1 border border-gray-300 rounded-md text-sm ${isProcessing === user.id ? 'opacity-50' : ''}`}
                                 >
                                     {Object.values(UserStatus).map(s => (
                                         <option key={s} value={s}>{USER_STATUS_TRANSLATION[s]}</option>
                                     ))}
                                 </select>
+                                {isProcessing === user.id && <div className="absolute inset-0 bg-white/50 flex items-center justify-center text-[8px] font-bold">SAVING...</div>}
                            </div>
                         </div>
                     ))}
@@ -101,7 +116,6 @@ const UserManagementSection = () => {
                     <button onClick={() => setFormType(Role.CUSTOMER)} className={`px-3 py-1 rounded-md text-sm ${formType === Role.CUSTOMER ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Cliente</button>
                     <button onClick={() => setFormType(Role.ESTABLISHMENT)} className={`px-3 py-1 rounded-md text-sm ${formType === Role.ESTABLISHMENT ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>Estabelecimento</button>
                 </div>
-                {feedback && <p className="bg-green-100 text-green-800 p-2 rounded-md mb-4 text-center">{feedback}</p>}
                 <RegistrationForm type={formType} onSubmit={handleSubmit} />
             </div>
         </div>
@@ -116,6 +130,7 @@ const RegistrationForm: React.FC<{ type: Role.CUSTOMER | Role.ESTABLISHMENT, onS
     const [phrase, setPhrase] = useState(''); // Establishment only
     const [photo, setPhoto] = useState<string | null>(null);
     const [showCamera, setShowCamera] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     const isEstablishment = type === Role.ESTABLISHMENT;
 
@@ -125,7 +140,9 @@ const RegistrationForm: React.FC<{ type: Role.CUSTOMER | Role.ESTABLISHMENT, onS
     
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setIsLoading(true);
         const success = await onSubmit({ name, phone, email, password, photo, phrase });
+        setIsLoading(false);
         if(success) resetForm();
     };
 
@@ -184,7 +201,9 @@ const RegistrationForm: React.FC<{ type: Role.CUSTOMER | Role.ESTABLISHMENT, onS
                 <label className="block text-sm font-medium text-gray-700">Senha</label>
                 <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1 w-full p-2 border border-gray-300 rounded-md" required />
             </div>
-            <button type="submit" className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700">Cadastrar</button>
+            <button type="submit" disabled={isLoading} className={`w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition-colors ${isLoading ? 'bg-blue-400' : 'hover:bg-blue-700'}`}>
+                {isLoading ? 'Cadastrando...' : 'Cadastrar'}
+            </button>
         </form>
     );
 };

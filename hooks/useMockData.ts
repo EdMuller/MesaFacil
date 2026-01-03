@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Establishment, Table, CallType, CallStatus, Settings, SemaphoreStatus, User, Role, CustomerProfile, UserStatus } from '../types';
 import { DEFAULT_SETTINGS, SUPABASE_CONFIG, POLLING_INTERVAL } from '../constants';
 
-// --- Types for DB Tables ---
+// --- Tipagem para chamadas do Banco ---
 interface DBCall {
     id: string;
     establishment_id: string;
@@ -14,14 +14,14 @@ interface DBCall {
     created_at_ts: number;
 }
 
-// --- Initialize Supabase ---
+// --- Inicialização do Supabase Singleton ---
 let supabaseInstance: any = null;
 
 const initSupabase = () => {
     if (supabaseInstance) return supabaseInstance;
     try {
-        const url = SUPABASE_CONFIG.url?.trim();
-        const key = SUPABASE_CONFIG.anonKey?.trim();
+        const url = SUPABASE_CONFIG.url?.trim() || localStorage.getItem('supabase_url')?.trim();
+        const key = SUPABASE_CONFIG.anonKey?.trim() || localStorage.getItem('supabase_key')?.trim();
 
         if (url && key && url.startsWith('http')) {
             supabaseInstance = createClient(url, key, {
@@ -34,10 +34,10 @@ const initSupabase = () => {
     return supabaseInstance;
 }
 
-const withTimeout = <T>(promise: Promise<T>, ms: number = 8000): Promise<T> => {
+const withTimeout = <T>(promise: Promise<T>, ms: number = 10000): Promise<T> => {
     return Promise.race([
         promise,
-        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Timeout: O servidor demorou muito para responder.")), ms))
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Timeout de ${ms}ms excedido.`)), ms))
     ]);
 };
 
@@ -51,6 +51,7 @@ export const useMockData = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [activeSessions, setActiveSessions] = useState<Set<string>>(new Set());
   const [isUpdating, setIsUpdating] = useState(false); 
+  const [initError, setInitError] = useState<string | null>(null);
 
   const supabaseRef = useRef<any>(null);
 
@@ -61,27 +62,31 @@ export const useMockData = () => {
       return client;
   }
 
-  // --- 1. Inicialização ---
+  // --- 1. Boot do Aplicativo ---
   useEffect(() => {
       const client = getSb();
       
       const boot = async () => {
           if (!client) { 
-              console.warn("Supabase não configurado via constantes.");
+              console.warn("Supabase não configurado.");
               setIsInitialized(true); 
               return; 
           }
           
           try {
-              // Verifica sessão atual com timeout agressivo para não travar o app
-              const sessionRes = await withTimeout(client.auth.getSession(), 5000);
-              const session = (sessionRes as any)?.data?.session;
+              // Verifica sessão com timeout para não travar o carregamento inicial
+              const { data: { session } } = (await withTimeout(client.auth.getSession(), 5000)) as any;
               
               if (session?.user) {
-                  await fetchUserProfile(session.user.id, session.user.email!);
+                  // Carrega o perfil do usuário, mas não deixa travar o app se falhar
+                  await fetchUserProfile(session.user.id, session.user.email!).catch(e => {
+                      console.error("Erro ao carregar perfil no boot:", e);
+                      setInitError("Erro ao carregar seu perfil. Tente limpar a sessão.");
+                  });
               }
           } catch (e) {
-              console.error("Erro no processo de boot (Supabase):", e);
+              console.error("Erro no processo de boot:", e);
+              // Não travamos o isInitialized para que o usuário veja a tela de login pelo menos
           } finally {
               setIsInitialized(true);
           }
@@ -89,7 +94,7 @@ export const useMockData = () => {
       
       boot();
 
-      // Listener para mudanças de estado de autenticação
+      // Listener de Autenticação
       const { data: { subscription } } = (client?.auth.onAuthStateChange(async (event: string, session: any) => {
           if (event === 'SIGNED_IN' && session?.user) {
               await fetchUserProfile(session.user.id, session.user.email!);
@@ -101,25 +106,13 @@ export const useMockData = () => {
           }
       }) as any) || { data: { subscription: { unsubscribe: () => {} } } };
 
-      // Carregar lista de usuários (para Admin)
-      const loadAllUsers = async () => {
-          if (!client) return;
-          try {
-              const { data } = (await withTimeout(client.from('profiles').select('*'))) as any;
-              if (data) {
-                  const mapped = data.map((p: any) => ({
-                      id: p.id, email: p.email, password: '', role: p.role as Role, name: p.name, status: p.status as UserStatus
-                  }));
-                  setUsers(mapped);
-              }
-          } catch (e) {}
-      };
+      // Carregar lista de usuários para Admin
       loadAllUsers();
 
       return () => subscription.unsubscribe();
   }, []);
 
-  // --- 2. Polling ---
+  // --- 2. Ciclo de Polling ---
   useEffect(() => {
       if (!currentUser) return;
 
@@ -138,34 +131,58 @@ export const useMockData = () => {
                   }
               }
           } catch (e) {
-              console.error("Erro no ciclo de atualização:", e);
+              console.error("Erro no ciclo de polling:", e);
           } finally {
               setIsUpdating(false);
           }
       };
 
       const intervalId = setInterval(cycle, POLLING_INTERVAL);
-      cycle(); // Chama imediato na montagem
+      cycle();
       return () => clearInterval(intervalId);
   }, [currentUser?.id, currentUser?.establishmentId]);
 
-  // --- Loaders ---
+  // --- Funções Auxiliares de Dados ---
+
+  const loadAllUsers = async () => {
+      const sb = getSb();
+      if (!sb) return;
+      try {
+          const { data, error } = (await withTimeout(sb.from('profiles').select('*'))) as any;
+          if (error) throw error;
+          if (data) {
+              const mapped = data.map((p: any) => ({
+                  id: p.id, email: p.email, password: '', role: p.role as Role, name: p.name, status: p.status as UserStatus
+              }));
+              setUsers(mapped);
+          }
+      } catch (e) {
+          console.warn("Não foi possível carregar lista de usuários (Admin):", e);
+      }
+  };
 
   const sendHeartbeat = async (estId: string) => {
       const sb = getSb();
       if (!sb) return;
-      try { await sb.from('establishments').update({ is_open: true }).eq('id', estId); } catch (e) {}
+      try { 
+          // Atualiza is_open e last_heartbeat para o backend saber que o painel está ativo
+          await sb.from('establishments').update({ is_open: true, updated_at: new Date().toISOString() }).eq('id', estId); 
+      } catch (e) {
+          console.error("Falha no heartbeat:", e);
+      }
   };
 
   const loadEstablishmentData = async (estId: string) => {
       const sb = getSb();
       if (!sb) return null;
       try {
-          const { data: est, error } = (await withTimeout(sb.from('establishments').select('*').eq('id', estId).single())) as any;
-          if (error || !est) return null;
+          const { data: est, error: estError } = (await withTimeout(sb.from('establishments').select('*').eq('id', estId).single())) as any;
+          if (estError || !est) return null;
 
-          const { data: calls } = (await withTimeout(sb.from('calls').select('*').eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']))) as any; 
+          const { data: calls, error: callsError } = (await withTimeout(sb.from('calls').select('*').eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']))) as any; 
           
+          if (callsError) throw callsError;
+
           const tablesMap = new Map<string, Table>();
           (calls as DBCall[])?.forEach((c: DBCall) => {
               const existing = tablesMap.get(c.table_number) || { number: c.table_number, calls: [] };
@@ -192,6 +209,7 @@ export const useMockData = () => {
           });
           return fullEst;
       } catch (e) { 
+          console.error(`Erro ao carregar dados do est ${estId}:`, e);
           return null; 
       }
   };
@@ -203,25 +221,37 @@ export const useMockData = () => {
           const { data: profile, error } = (await withTimeout(sb.from('profiles').select('*').eq('id', userId).single())) as any;
           
           if (error || !profile) {
-              console.warn("Perfil não encontrado para usuário logado.");
+              console.warn("Perfil não encontrado no banco.");
               return;
           }
 
-          const user: User = { id: profile.id, email, password: '', role: profile.role as Role, name: profile.name, status: profile.status as UserStatus };
+          const user: User = { 
+              id: profile.id, 
+              email, 
+              password: '', 
+              role: profile.role as Role, 
+              name: profile.name, 
+              status: profile.status as UserStatus 
+          };
           
+          // Define o usuário imediatamente para liberar a UI
+          setCurrentUser(user);
+
+          // Carregamentos secundários em paralelo
           if (user.role === Role.ESTABLISHMENT) {
               const { data: est } = (await withTimeout(sb.from('establishments').select('id').eq('owner_id', userId).single())) as any;
               if (est) {
                   user.establishmentId = est.id;
-                  await loadEstablishmentData(est.id);
+                  setCurrentUser(prev => prev ? { ...prev, establishmentId: est.id } : null);
+                  loadEstablishmentData(est.id);
+              } else {
+                  console.warn("Usuário é estabelecimento mas não tem registro de estabelecimento vinculado.");
               }
           } else {
-              await loadCustomerData(userId);
+              loadCustomerData(userId);
           }
-          
-          setCurrentUser(user);
       } catch (e) {
-          console.error("Erro ao carregar perfil do usuário:", e);
+          console.error("Erro ao processar perfil do usuário:", e);
       }
   };
 
@@ -237,7 +267,7 @@ export const useMockData = () => {
           setCustomerProfiles(prev => new Map(prev).set(userId, profile));
           
           if (favIds.length > 0) {
-              await Promise.all(favIds.map(id => loadEstablishmentData(id)));
+              favIds.forEach(id => loadEstablishmentData(id));
           }
       } catch (e) {
           console.error("Erro ao carregar dados do cliente:", e);
@@ -246,7 +276,7 @@ export const useMockData = () => {
 
   const login = useCallback(async (email: string, password: string) => {
       const sb = getSb();
-      if (!sb) throw new Error("Erro de conexão com o banco de dados.");
+      if (!sb) throw new Error("Conexão com o banco indisponível.");
       const { data, error } = (await withTimeout(sb.auth.signInWithPassword({ email, password }))) as any;
       if (error) throw error;
       await fetchUserProfile(data.user.id, data.user.email!);
@@ -262,59 +292,60 @@ export const useMockData = () => {
       setCurrentUser(null);
   }, [currentUser]);
 
-  const registerEstablishment = async (name: string, phone: string, email: string, password: string, photo: string | null, phrase: string) => {
-      const sb = getSb();
-      if (!sb) throw new Error("Erro de conexão.");
-      
-      const { data, error } = (await withTimeout(sb.auth.signUp({ email, password }))) as any;
-      if (error) throw error;
-
-      const uid = data.user!.id;
-      await withTimeout(sb.from('profiles').insert({ id: uid, email, role: Role.ESTABLISHMENT, name, status: UserStatus.TESTING }));
-      await withTimeout(sb.from('establishments').insert({ 
-          owner_id: uid, name, phone: sanitizePhone(phone), 
-          photo_url: photo, phrase, settings: DEFAULT_SETTINGS, is_open: false 
-      }));
-      return { name };
-  };
-
-  const registerCustomer = async (name: string, email: string, password: string, phone?: string, cep?: string) => {
-      const sb = getSb();
-      if (!sb) throw new Error("Erro de conexão.");
-      const { data, error } = (await withTimeout(sb.auth.signUp({ email, password }))) as any;
-      if (error) throw error;
-      const uid = data.user!.id;
-      await withTimeout(sb.from('profiles').insert({ id: uid, email, role: Role.CUSTOMER, name, status: UserStatus.TESTING }));
-      if (phone || cep) await withTimeout(sb.from('customer_details').insert({ user_id: uid, phone, cep }));
-      return { name };
-  };
+  // --- Ações do Sistema ---
 
   return {
-      isInitialized, setIsInitialized, isUpdating,
+      isInitialized, setIsInitialized, isUpdating, initError,
       currentUser, users, establishments, customerProfiles, activeSessions,
       currentEstablishment: currentUser?.establishmentId ? establishments.get(currentUser.establishmentId) : null,
       currentCustomerProfile: currentUser?.id ? customerProfiles.get(currentUser.id) : null,
-      login, logout, registerCustomer, registerEstablishment,
+      login, logout,
+      registerEstablishment: async (name: string, phone: string, email: string, password: string, photo: string | null, phrase: string) => {
+          const sb = getSb();
+          if (!sb) throw new Error("Erro de conexão.");
+          const { data, error } = (await withTimeout(sb.auth.signUp({ email, password }))) as any;
+          if (error) throw error;
+          const uid = data.user!.id;
+          await withTimeout(sb.from('profiles').insert({ id: uid, email, role: Role.ESTABLISHMENT, name, status: UserStatus.TESTING }));
+          await withTimeout(sb.from('establishments').insert({ 
+              owner_id: uid, name, phone: sanitizePhone(phone), 
+              photo_url: photo, phrase, settings: DEFAULT_SETTINGS, is_open: false 
+          }));
+          return { name };
+      },
+      registerCustomer: async (name: string, email: string, password: string, phone?: string, cep?: string) => {
+          const sb = getSb();
+          if (!sb) throw new Error("Erro de conexão.");
+          const { data, error } = (await withTimeout(sb.auth.signUp({ email, password }))) as any;
+          if (error) throw error;
+          const uid = data.user!.id;
+          await withTimeout(sb.from('profiles').insert({ id: uid, email, role: Role.CUSTOMER, name, status: UserStatus.TESTING }));
+          if (phone || cep) await withTimeout(sb.from('customer_details').insert({ user_id: uid, phone, cep }));
+          return { name };
+      },
       searchEstablishmentByPhone: async (phone: string) => {
           const sb = getSb();
           const clean = sanitizePhone(phone);
-          const { data } = (await withTimeout(sb.from('establishments').select('id').eq('phone', clean).maybeSingle())) as any;
-          if (data) return await loadEstablishmentData(data.id);
-          return null;
+          const { data, error } = (await withTimeout(sb.from('establishments').select('id').eq('phone', clean).maybeSingle())) as any;
+          if (error || !data) return null;
+          return await loadEstablishmentData(data.id);
       },
       addCall: async (estId: string, tableNum: string, type: CallType) => {
           const sb = getSb();
+          if(!sb) return;
           await withTimeout(sb.from('calls').insert({ establishment_id: estId, table_number: tableNum, type, status: CallStatus.SENT, created_at_ts: Date.now() }));
           await loadEstablishmentData(estId);
       },
       closeEstablishmentWorkday: async (id: string) => {
           const sb = getSb();
+          if(!sb) return;
           await withTimeout(sb.from('establishments').update({ is_open: false }).eq('id', id));
           await withTimeout(sb.from('calls').update({ status: CallStatus.CANCELED }).eq('establishment_id', id).in('status', ['SENT', 'VIEWED']));
           await loadEstablishmentData(id);
       },
       checkPendingCallsOnLogin: async (id: string) => {
           const sb = getSb();
+          if(!sb) return false;
           const { count } = (await withTimeout(sb.from('calls').select('*', { count: 'exact', head: true }).eq('establishment_id', id).in('status', ['SENT', 'VIEWED']))) as any;
           return (count || 0) > 0;
       },
@@ -363,10 +394,21 @@ export const useMockData = () => {
           const sb = getSb();
           if (!sb) return;
           try {
-              await withTimeout(sb.from('profiles').update({ status }).eq('id', userId));
+              // Execução real no banco de dados
+              // FIX: Casted to 'any' to fix TypeScript property access error.
+              const { error } = (await withTimeout(sb.from('profiles').update({ status }).eq('id', userId))) as any;
+              if (error) throw error;
+              
+              // Atualização do estado local para feedback imediato
               setUsers(prev => prev.map(u => u.id === userId ? { ...u, status } : u));
+              
+              // Se o usuário atual for o afetado, atualiza ele também
+              if (currentUser?.id === userId) {
+                  setCurrentUser(prev => prev ? { ...prev, status } : null);
+              }
           } catch (e) {
-              console.error("Falha ao atualizar status do usuário:", e);
+              console.error("Falha ao atualizar status do usuário no banco:", e);
+              throw new Error("Erro ao salvar alteração no servidor.");
           }
       },
       getTableSemaphoreStatus: (table: Table, settings: Settings): SemaphoreStatus => {

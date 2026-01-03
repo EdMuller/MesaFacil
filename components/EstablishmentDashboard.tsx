@@ -30,10 +30,16 @@ const EstablishmentDashboard: React.FC = () => {
   const [isShareAppOpen, setShareAppOpen] = useState(false);
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [isStatisticsOpen, setStatisticsOpen] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   
   const hasCheckedPendingRef = useRef(false);
 
   useEffect(() => {
+      // Timeout para detectar se a sincronização travou
+      const timer = setTimeout(() => {
+          if (!currentEstablishment) setLoadError(true);
+      }, 12000);
+
       const check = async () => {
           if (currentEstablishment && !hasCheckedPendingRef.current) {
               hasCheckedPendingRef.current = true;
@@ -49,6 +55,7 @@ const EstablishmentDashboard: React.FC = () => {
           }
       };
       check();
+      return () => clearTimeout(timer);
   }, [currentEstablishment, checkPendingCallsOnLogin, closeEstablishmentWorkday]);
 
   const tablesWithStatus = useMemo(() => {
@@ -84,7 +91,25 @@ const EstablishmentDashboard: React.FC = () => {
           <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
               <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
               <h2 className="text-xl font-bold text-gray-800">Sincronizando Estabelecimento...</h2>
-              <p className="text-gray-500 mt-2">Estamos preparando o seu painel de atendimento.</p>
+              <p className="text-gray-500 mt-2">Estamos preparando o seu painel de atendimento em tempo real.</p>
+              
+              {loadError && (
+                  <div className="mt-8 p-4 bg-red-50 rounded-xl border border-red-100 max-w-xs animate-fade-in">
+                      <p className="text-red-700 text-sm font-medium mb-3">Ops! A sincronização está demorando demais.</p>
+                      <button 
+                        onClick={() => window.location.reload()} 
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-red-700 transition-colors"
+                      >
+                          Recarregar Página
+                      </button>
+                      <button 
+                        onClick={logout} 
+                        className="block w-full mt-3 text-red-500 text-[10px] font-bold uppercase hover:underline"
+                      >
+                          Sair e Tentar Novamente
+                      </button>
+                  </div>
+              )}
           </div>
       );
   }

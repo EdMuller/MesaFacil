@@ -29,8 +29,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetConfig = () => {
       if (SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
-          alert("As configurações do servidor estão definidas pelo administrador.");
-          return;
+          if(!window.confirm("As configurações são fixas do administrador. Deseja realmente tentar resetar as credenciais locais do navegador?")) return;
       }
       localStorage.removeItem('supabase_url');
       localStorage.removeItem('supabase_key');
@@ -43,7 +42,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const content = () => {
       if (showConfig) return <ConfigModal onSave={handleConfigSave} />;
       if (mockData.isInitialized) return children;
-      return <LoadingScreen onForceInit={() => mockData.setIsInitialized(true)} />;
+      return <LoadingScreen onForceInit={() => mockData.setIsInitialized(true)} error={mockData.initError} />;
   };
 
   return (
@@ -61,17 +60,17 @@ export const useAppContext = () => {
   return context;
 };
 
-const LoadingScreen: React.FC<{ onForceInit: () => void }> = ({ onForceInit }) => {
-    const { logout } = useAppContext(); 
+const LoadingScreen: React.FC<{ onForceInit: () => void; error?: string | null }> = ({ onForceInit, error }) => {
+    const { logout, resetConfig } = useAppContext(); 
     const [showOptions, setShowOptions] = useState(false);
 
     useEffect(() => {
-        const timer = setTimeout(() => setShowOptions(true), 8000);
+        const timer = setTimeout(() => setShowOptions(true), 6000);
         return () => clearTimeout(timer);
     }, []);
 
     const handleHardReset = () => {
-        if (window.confirm("Deseja limpar sua sessão e tentar entrar novamente?")) {
+        if (window.confirm("Deseja limpar sua sessão de login e tentar entrar novamente?")) {
             logout().finally(() => window.location.reload());
         }
     };
@@ -81,29 +80,36 @@ const LoadingScreen: React.FC<{ onForceInit: () => void }> = ({ onForceInit }) =
             <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-2">Mesa Fácil</h2>
-                <p className="text-gray-500">Sincronizando seus dados...</p>
+                <p className="text-gray-500">{error || "Sincronizando seus dados..."}</p>
             </div>
 
             {showOptions && (
                 <div className="mt-8 animate-fade-in max-w-xs w-full space-y-3">
-                    <p className="text-xs text-red-500 mb-2 font-medium">Conexão lenta detectada</p>
+                    <p className="text-xs text-red-500 mb-2 font-medium">A conexão está demorando mais que o esperado.</p>
                     
                     <button 
                         onClick={onForceInit}
                         className="w-full bg-blue-600 text-white px-4 py-3 rounded-xl text-sm font-bold shadow-md hover:bg-blue-700 transition-colors"
                     >
-                        Entrar Mesmo Assim
+                        Tentar Entrar Mesmo Assim
                     </button>
                     
                     <button 
                         onClick={handleHardReset}
                         className="w-full bg-white border border-gray-300 text-gray-600 px-4 py-3 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors"
                     >
-                        Limpar Sessão
+                        Deslogar e Recomeçar
+                    </button>
+
+                    <button 
+                        onClick={resetConfig}
+                        className="w-full text-blue-600 text-xs font-semibold py-2 hover:underline"
+                    >
+                        Configurar Servidor Manualmente
                     </button>
                     
                     <p className="text-[10px] text-gray-400 mt-4 leading-tight">
-                        Se o problema persistir, verifique sua conexão com a internet ou as credenciais do Supabase.
+                        Dica: Verifique sua conexão. Se o banco de dados estiver inativo, o sistema pode demorar para responder.
                     </p>
                 </div>
             )}
