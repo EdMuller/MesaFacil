@@ -65,40 +65,41 @@ export const useAppContext = () => {
 };
 
 const LoadingScreen = () => {
-    const { resetConfig } = useAppContext(); 
+    const { logout } = useAppContext(); 
     const [showReset, setShowReset] = useState(false);
 
     useEffect(() => {
-        // Se demorar mais de 3 segundos carregando, mostra opção de reset
-        const timer = setTimeout(() => setShowReset(true), 3000);
+        // Se demorar mais de 5 segundos carregando, mostra opção de deslogar
+        const timer = setTimeout(() => setShowReset(true), 5000);
         return () => clearTimeout(timer);
     }, []);
 
-    const handleReset = () => {
-        if (window.confirm("Isso apagará as configurações de conexão salvas no navegador. Deseja continuar?")) {
-            localStorage.removeItem('supabase_url');
-            localStorage.removeItem('supabase_key');
-            window.location.reload();
+    const handleHardReset = () => {
+        if (window.confirm("Parece que a conexão está instável ou o seu login expirou. Deseja limpar sua sessão e tentar entrar novamente?")) {
+            logout().finally(() => {
+                window.location.reload();
+            });
         }
     };
 
     return (
-        <div className="flex items-center justify-center min-h-screen flex-col gap-6 p-4 text-center">
+        <div className="flex items-center justify-center min-h-screen flex-col gap-6 p-4 text-center bg-gray-50">
             <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             <div>
-                <p className="text-gray-500 font-medium mb-2">Conectando ao servidor...</p>
-                <p className="text-xs text-gray-400">Verificando sessão segura</p>
+                <p className="text-gray-700 font-bold mb-1">Sincronizando com Mesa Fácil...</p>
+                <p className="text-xs text-gray-400">Isso pode levar alguns segundos dependendo da sua internet.</p>
             </div>
 
-            {showReset && !SUPABASE_CONFIG.url && (
-                <div className="mt-4 animate-fade-in">
-                    <p className="text-sm text-red-500 mb-2">Está demorando mais que o normal?</p>
+            {showReset && (
+                <div className="mt-8 animate-fade-in max-w-xs">
+                    <p className="text-sm text-gray-500 mb-4">Demorando muito?</p>
                     <button 
-                        onClick={handleReset}
-                        className="bg-white border border-red-300 text-red-600 px-4 py-2 rounded-md text-sm font-semibold hover:bg-red-50 transition-colors shadow-sm"
+                        onClick={handleHardReset}
+                        className="w-full bg-white border border-blue-300 text-blue-600 px-4 py-3 rounded-xl text-sm font-bold hover:bg-blue-50 transition-colors shadow-sm"
                     >
-                        Redefinir Configurações do Servidor
+                        Limpar Sessão e Recarregar
                     </button>
+                    <p className="text-[10px] text-gray-400 mt-3">Utilize se a tela não abrir após o login.</p>
                 </div>
             )}
         </div>
