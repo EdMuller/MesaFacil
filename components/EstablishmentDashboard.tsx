@@ -23,7 +23,8 @@ const EstablishmentDashboard: React.FC = () => {
       logout, 
       closeEstablishmentWorkday, 
       checkPendingCallsOnLogin,
-      isUpdating
+      isUpdating,
+      restoreEstablishment // Nova função
   } = useAppContext();
 
   const [isSettingsOpen, setSettingsOpen] = useState(false);
@@ -31,13 +32,18 @@ const EstablishmentDashboard: React.FC = () => {
   const [isProfileOpen, setProfileOpen] = useState(false);
   const [isStatisticsOpen, setStatisticsOpen] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [showRestoreBtn, setShowRestoreBtn] = useState(false);
   
   const hasCheckedPendingRef = useRef(false);
 
   useEffect(() => {
       // Timeout para detectar se a sincronização travou
       const timer = setTimeout(() => {
-          if (!currentEstablishment) setLoadError(true);
+          if (!currentEstablishment) {
+              setLoadError(true);
+              // Se passar 15 segundos e ainda não tiver estabelecimento, sugere restaurar
+              setShowRestoreBtn(true);
+          }
       }, 12000);
 
       const check = async () => {
@@ -96,6 +102,20 @@ const EstablishmentDashboard: React.FC = () => {
               {loadError && (
                   <div className="mt-8 p-4 bg-red-50 rounded-xl border border-red-100 max-w-xs animate-fade-in">
                       <p className="text-red-700 text-sm font-medium mb-3">Ops! A sincronização está demorando demais.</p>
+                      
+                      {showRestoreBtn && (
+                         <div className="mb-4 bg-yellow-100 border border-yellow-300 p-3 rounded text-left">
+                             <p className="text-yellow-800 text-xs font-bold mb-1">Diagnóstico:</p>
+                             <p className="text-yellow-800 text-xs mb-2">Não encontramos os dados do seu restaurante, embora seu login esteja correto.</p>
+                             <button 
+                                onClick={restoreEstablishment}
+                                className="w-full bg-yellow-600 text-white py-2 rounded font-bold hover:bg-yellow-700 transition-colors"
+                             >
+                                 Restaurar Cadastro
+                             </button>
+                         </div>
+                      )}
+
                       <button 
                         onClick={() => window.location.reload()} 
                         className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-red-700 transition-colors"
