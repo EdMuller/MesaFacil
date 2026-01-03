@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { Establishment, Table, CallType, CallStatus, Settings, SemaphoreStatus, User, Role, CustomerProfile, UserStatus } from '../types';
@@ -33,7 +34,6 @@ const initSupabase = () => {
     return supabaseInstance;
 }
 
-// Helper para timeout de promessas - Reduzido para 8s para falhar mais rápido
 const withTimeout = <T>(promise: Promise<T>, ms: number = 8000): Promise<T> => {
     return Promise.race([
         promise,
@@ -64,38 +64,57 @@ export const useMockData = () => {
   // --- 1. Inicialização ---
   useEffect(() => {
       const client = getSb();
+      
       const boot = async () => {
           if (!client) { 
-              console.warn("Supabase não configurado.");
+              console.warn("Supabase não configurado via constantes.");
               setIsInitialized(true); 
               return; 
           }
           
           try {
-              // Verifica sessão atual
-              const sessionRes = await withTimeout(client.auth.getSession());
+              // Verifica sessão atual com timeout agressivo para não travar o app
+              const sessionRes = await withTimeout(client.auth.getSession(), 5000);
               const session = (sessionRes as any)?.data?.session;
               
               if (session?.user) {
-                  // Se existe usuário logado, tenta carregar o perfil
                   await fetchUserProfile(session.user.id, session.user.email!);
               }
           } catch (e) {
-              console.error("Erro no processo de boot:", e);
+              console.error("Erro no processo de boot (Supabase):", e);
           } finally {
-              // GARANTIA: isInitialized sempre será true, escondendo o spinner de carregamento
               setIsInitialized(true);
           }
       };
+      
       boot();
 
-      const { data: { subscription } } = (client?.auth.onAuthStateChange((event: string, session: any) => {
+      // Listener para mudanças de estado de autenticação
+      const { data: { subscription } } = (client?.auth.onAuthStateChange(async (event: string, session: any) => {
+          if (event === 'SIGNED_IN' && session?.user) {
+              await fetchUserProfile(session.user.id, session.user.email!);
+          }
           if (event === 'SIGNED_OUT') {
               setCurrentUser(null);
               setEstablishments(new Map());
               setActiveSessions(new Set());
           }
       }) as any) || { data: { subscription: { unsubscribe: () => {} } } };
+
+      // Carregar lista de usuários (para Admin)
+      const loadAllUsers = async () => {
+          if (!client) return;
+          try {
+              const { data } = (await withTimeout(client.from('profiles').select('*'))) as any;
+              if (data) {
+                  const mapped = data.map((p: any) => ({
+                      id: p.id, email: p.email, password: '', role: p.role as Role, name: p.name, status: p.status as UserStatus
+                  }));
+                  setUsers(mapped);
+              }
+          } catch (e) {}
+      };
+      loadAllUsers();
 
       return () => subscription.unsubscribe();
   }, []);
@@ -125,8 +144,8 @@ export const useMockData = () => {
           }
       };
 
-      cycle();
       const intervalId = setInterval(cycle, POLLING_INTERVAL);
+      cycle(); // Chama imediato na montagem
       return () => clearInterval(intervalId);
   }, [currentUser?.id, currentUser?.establishmentId]);
 
@@ -135,7 +154,7 @@ export const useMockData = () => {
   const sendHeartbeat = async (estId: string) => {
       const sb = getSb();
       if (!sb) return;
-      try { await withTimeout(sb.from('establishments').update({ is_open: true }).eq('id', estId)); } catch (e) {}
+      try { await sb.from('establishments').update({ is_open: true }).eq('id', estId); } catch (e) {}
   };
 
   const loadEstablishmentData = async (estId: string) => {
@@ -145,7 +164,6 @@ export const useMockData = () => {
           const { data: est, error } = (await withTimeout(sb.from('establishments').select('*').eq('id', estId).single())) as any;
           if (error || !est) return null;
 
-          // FIX: Cast awaited withTimeout result to any to fix missing property 'data' on type '{}'
           const { data: calls } = (await withTimeout(sb.from('calls').select('*').eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']))) as any; 
           
           const tablesMap = new Map<string, Table>();
@@ -162,7 +180,7 @@ export const useMockData = () => {
           }
 
           const fullEst: Establishment = {
-              id: est.id, ownerId: est.owner_id, name: est.name, phone: (est as any).phone,
+              id: est.id, ownerId: est.owner_id, name: est.name, phone: est.phone,
               photoUrl: est.photo_url, phrase: est.phrase, settings: est.settings || DEFAULT_SETTINGS,
               tables: tablesMap, eventLog: [], isOpen: est.is_open === true
           };
@@ -174,7 +192,6 @@ export const useMockData = () => {
           });
           return fullEst;
       } catch (e) { 
-          console.warn(`Erro ao carregar dados do estabelecimento ${estId}:`, e);
           return null; 
       }
   };
@@ -185,21 +202,18 @@ export const useMockData = () => {
       try {
           const { data: profile, error } = (await withTimeout(sb.from('profiles').select('*').eq('id', userId).single())) as any;
           
-          // Caso importante: Se o Auth existe mas o perfil no banco foi deletado
           if (error || !profile) {
-              console.warn("Perfil não encontrado para usuário logado. Limpando sessão.");
-              await sb.auth.signOut();
+              console.warn("Perfil não encontrado para usuário logado.");
               return;
           }
 
-          const user: User = { id: profile.id, email, password: '', role: profile.role as Role, name: profile.name, status: profile.status };
+          const user: User = { id: profile.id, email, password: '', role: profile.role as Role, name: profile.name, status: profile.status as UserStatus };
           
           if (user.role === Role.ESTABLISHMENT) {
-              // FIX: Cast awaited withTimeout result to any to fix missing property 'data' on type '{}'
               const { data: est } = (await withTimeout(sb.from('establishments').select('id').eq('owner_id', userId).single())) as any;
               if (est) {
-                  user.establishmentId = (est as any).id;
-                  await loadEstablishmentData((est as any).id);
+                  user.establishmentId = est.id;
+                  await loadEstablishmentData(est.id);
               }
           } else {
               await loadCustomerData(userId);
@@ -215,13 +229,11 @@ export const useMockData = () => {
       const sb = getSb();
       if (!sb) return;
       try {
-          // FIX: Ensure 'as any' is correctly applied to fix missing property 'data' on type '{}'
           const { data: favs } = (await withTimeout(sb.from('customer_favorites').select('establishment_id').eq('user_id', userId))) as any;
           const favIds = favs?.map((f: any) => f.establishment_id) || [];
-          // FIX: Cast awaited withTimeout result to any to fix missing property 'data' on type '{}'
           const { data: details } = (await withTimeout(sb.from('customer_details').select('*').eq('user_id', userId).maybeSingle())) as any;
           
-          const profile: CustomerProfile = { userId, favoritedEstablishmentIds: favIds, phone: (details as any)?.phone, cep: (details as any)?.cep };
+          const profile: CustomerProfile = { userId, favoritedEstablishmentIds: favIds, phone: details?.phone, cep: details?.cep };
           setCustomerProfiles(prev => new Map(prev).set(userId, profile));
           
           if (favIds.length > 0) {
@@ -232,11 +244,9 @@ export const useMockData = () => {
       }
   };
 
-  // --- Ações ---
-
   const login = useCallback(async (email: string, password: string) => {
       const sb = getSb();
-      if (!sb) throw new Error("Erro de conexão.");
+      if (!sb) throw new Error("Erro de conexão com o banco de dados.");
       const { data, error } = (await withTimeout(sb.auth.signInWithPassword({ email, password }))) as any;
       if (error) throw error;
       await fetchUserProfile(data.user.id, data.user.email!);
@@ -246,9 +256,10 @@ export const useMockData = () => {
       const sb = getSb();
       if (!sb) return;
       if (currentUser?.role === Role.ESTABLISHMENT && currentUser.establishmentId) {
-          try { await withTimeout(sb.from('establishments').update({ is_open: false }).eq('id', currentUser.establishmentId)); } catch(e){}
+          try { await sb.from('establishments').update({ is_open: false }).eq('id', currentUser.establishmentId); } catch(e){}
       }
       await sb.auth.signOut();
+      setCurrentUser(null);
   }, [currentUser]);
 
   const registerEstablishment = async (name: string, phone: string, email: string, password: string, photo: string | null, phrase: string) => {
@@ -278,20 +289,17 @@ export const useMockData = () => {
       return { name };
   };
 
-  const currentEstablishment = currentUser?.establishmentId ? establishments.get(currentUser.establishmentId) : null;
-  const currentCustomerProfile = currentUser?.id ? customerProfiles.get(currentUser.id) : null;
-
   return {
-      isInitialized, isUpdating,
+      isInitialized, setIsInitialized, isUpdating,
       currentUser, users, establishments, customerProfiles, activeSessions,
-      currentEstablishment, currentCustomerProfile,
+      currentEstablishment: currentUser?.establishmentId ? establishments.get(currentUser.establishmentId) : null,
+      currentCustomerProfile: currentUser?.id ? customerProfiles.get(currentUser.id) : null,
       login, logout, registerCustomer, registerEstablishment,
       searchEstablishmentByPhone: async (phone: string) => {
           const sb = getSb();
           const clean = sanitizePhone(phone);
-          // FIX: Cast awaited withTimeout result to any to fix missing property 'data' on type '{}'
           const { data } = (await withTimeout(sb.from('establishments').select('id').eq('phone', clean).maybeSingle())) as any;
-          if (data) return await loadEstablishmentData((data as any).id);
+          if (data) return await loadEstablishmentData(data.id);
           return null;
       },
       addCall: async (estId: string, tableNum: string, type: CallType) => {
@@ -307,34 +315,30 @@ export const useMockData = () => {
       },
       checkPendingCallsOnLogin: async (id: string) => {
           const sb = getSb();
-          // FIX: Cast awaited withTimeout result to any to fix missing property 'count' on type '{}'
           const { count } = (await withTimeout(sb.from('calls').select('*', { count: 'exact', head: true }).eq('establishment_id', id).in('status', ['SENT', 'VIEWED']))) as any;
           return (count || 0) > 0;
       },
       attendOldestCallByType: async (estId: string, tableNum: string, type: CallType) => {
           const sb = getSb();
-          // FIX: Cast awaited withTimeout result to any to fix missing property 'data' on type '{}'
           const { data } = (await withTimeout(sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('type', type).in('status', ['SENT', 'VIEWED']).order('created_at_ts', {ascending: true}).limit(1))) as any;
-          if ((data as any)?.[0]) {
-              await withTimeout(sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('id', (data as any)[0].id));
+          if (data?.[0]) {
+              await withTimeout(sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('id', data[0].id));
               await loadEstablishmentData(estId);
           }
       },
       cancelOldestCallByType: async (estId: string, tableNum: string, type: CallType) => {
           const sb = getSb();
-          // FIX: Cast awaited withTimeout result to any to fix missing property 'data' on type '{}'
           const { data } = (await withTimeout(sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('type', type).in('status', ['SENT', 'VIEWED']).order('created_at_ts', {ascending: true}).limit(1))) as any;
-          if ((data as any)?.[0]) {
-              await withTimeout(sb.from('calls').update({ status: CallStatus.CANCELED }).eq('id', (data as any)[0].id));
+          if (data?.[0]) {
+              await withTimeout(sb.from('calls').update({ status: CallStatus.CANCELED }).eq('id', data[0].id));
               await loadEstablishmentData(estId);
           }
       },
       viewAllCallsForTable: async (estId: string, tableNum: string) => {
           const sb = getSb();
-          // FIX: Cast awaited withTimeout result to any to fix missing property 'data' on type '{}'
           const { data } = (await withTimeout(sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('status', CallStatus.SENT))) as any;
-          if ((data as any)?.length) {
-              await withTimeout(sb.from('calls').update({ status: CallStatus.VIEWED }).in('id', (data as any).map((c: any) => c.id)));
+          if (data?.length) {
+              await withTimeout(sb.from('calls').update({ status: CallStatus.VIEWED }).in('id', data.map((c: any) => c.id)));
               await loadEstablishmentData(estId);
           }
       },
@@ -343,10 +347,28 @@ export const useMockData = () => {
           await withTimeout(sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('establishment_id', estId).eq('table_number', tableNum).in('status', ['SENT', 'VIEWED']));
           await loadEstablishmentData(estId);
       },
-      getEstablishmentByPhone: (p: string) => Array.from(establishments.values()).find((e: Establishment) => e.phone === sanitizePhone(p)),
-      favoriteEstablishment: async (uid: string, estId: string) => { await withTimeout(getSb().from('customer_favorites').insert({ user_id: uid, establishment_id: estId })); await loadCustomerData(uid); },
-      unfavoriteEstablishment: async (uid: string, estId: string) => { await withTimeout(getSb().from('customer_favorites').delete().eq('user_id', uid).eq('establishment_id', estId)); await loadCustomerData(uid); },
-      updateSettings: async (id: string, s: Settings) => { await withTimeout(getSb().from('establishments').update({ settings: s }).eq('id', id)); await loadEstablishmentData(id); },
+      favoriteEstablishment: async (uid: string, estId: string) => { 
+          await withTimeout(getSb().from('customer_favorites').insert({ user_id: uid, establishment_id: estId })); 
+          await loadCustomerData(uid); 
+      },
+      unfavoriteEstablishment: async (uid: string, estId: string) => { 
+          await withTimeout(getSb().from('customer_favorites').delete().eq('user_id', uid).eq('establishment_id', estId)); 
+          await loadCustomerData(uid); 
+      },
+      updateSettings: async (id: string, s: Settings) => { 
+          await withTimeout(getSb().from('establishments').update({ settings: s }).eq('id', id)); 
+          await loadEstablishmentData(id); 
+      },
+      updateUserStatus: async (userId: string, status: UserStatus) => {
+          const sb = getSb();
+          if (!sb) return;
+          try {
+              await withTimeout(sb.from('profiles').update({ status }).eq('id', userId));
+              setUsers(prev => prev.map(u => u.id === userId ? { ...u, status } : u));
+          } catch (e) {
+              console.error("Falha ao atualizar status do usuário:", e);
+          }
+      },
       getTableSemaphoreStatus: (table: Table, settings: Settings): SemaphoreStatus => {
           const active = table.calls.filter(c => c.status === 'SENT' || c.status === 'VIEWED');
           if (!active.length) return SemaphoreStatus.IDLE;
@@ -365,8 +387,14 @@ export const useMockData = () => {
           return SemaphoreStatus.GREEN;
       },
       trackTableSession: (eid: string, t: string) => setActiveSessions(prev => new Set(prev).add(`${eid}:${t}`)),
-      clearAllSessions: async () => {}, deleteCurrentUser: async () => {}, 
-      updateUserStatus: async (userId: string, status: UserStatus) => {}, 
+      getEstablishmentByPhone: (p: string) => Array.from(establishments.values()).find((e: Establishment) => e.phone === sanitizePhone(p)),
+      clearAllSessions: async () => {}, 
+      deleteCurrentUser: async () => {
+          const sb = getSb();
+          if (!sb || !currentUser) return;
+          await withTimeout(sb.from('profiles').delete().eq('id', currentUser.id));
+          await logout();
+      },
       subscribeToEstablishmentCalls: () => () => {}, 
   }
 };
