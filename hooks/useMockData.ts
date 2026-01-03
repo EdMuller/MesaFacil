@@ -34,11 +34,10 @@ const initSupabase = () => {
     return supabaseInstance;
 }
 
-// Helper para timeout de promessas
 const withTimeout = <T>(promise: Promise<T>, ms: number = 10000): Promise<T> => {
     return Promise.race([
         promise,
-        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("O servidor demorou muito para responder. Verifique se o projeto no Supabase está ativo.")), ms))
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("O servidor não respondeu a tempo.")), ms))
     ]);
 };
 
@@ -68,20 +67,18 @@ export const useMockData = () => {
       const boot = async () => {
           if (!client) { setIsInitialized(true); return; }
           try {
-              // Fix: Added cast to any to allow accessing session property on response
               const { data: { session } } = (await withTimeout(client.auth.getSession())) as any;
               if (session?.user) {
                   await fetchUserProfile(session.user.id, session.user.email!);
               }
           } catch (e) {
-              console.warn("Sessão não encontrada ou erro no boot:", e);
+              console.warn("Sessão não encontrada:", e);
           } finally {
               setIsInitialized(true);
           }
       };
       boot();
 
-      // Fix: Cast return of onAuthStateChange to any to avoid property access errors
       const { data: { subscription } } = (client?.auth.onAuthStateChange((event: string, session: any) => {
           if (event === 'SIGNED_OUT') {
               setCurrentUser(null);
@@ -93,11 +90,12 @@ export const useMockData = () => {
       return () => subscription.unsubscribe();
   }, []);
 
-  // --- 2. Polling (30s) ---
+  // --- 2. Polling (Executa imediatamente no login e depois a cada 30s) ---
   useEffect(() => {
       if (!currentUser) return;
 
       const cycle = async () => {
+          if (isUpdating) return;
           setIsUpdating(true); 
           try {
               if (currentUser.role === Role.ESTABLISHMENT && currentUser.establishmentId) {
@@ -111,39 +109,35 @@ export const useMockData = () => {
                   }
               }
           } catch (e) {
-              console.error("Erro no ciclo de atualização:", e);
+              console.error("Erro no ciclo:", e);
           } finally {
-              setTimeout(() => setIsUpdating(false), 500);
+              setIsUpdating(false);
           }
       };
 
+      // Executa uma vez imediatamente
+      cycle();
+
       const intervalId = setInterval(cycle, POLLING_INTERVAL);
       return () => clearInterval(intervalId);
-  }, [currentUser?.id, currentUser?.role, currentUser?.establishmentId]);
+  }, [currentUser?.id, currentUser?.establishmentId]);
 
   // --- Loaders ---
 
   const sendHeartbeat = async (estId: string) => {
       const sb = getSb();
       if (!sb) return;
-      try {
-          await sb.from('establishments').update({ is_open: true }).eq('id', estId);
-      } catch (e) {}
+      try { await sb.from('establishments').update({ is_open: true }).eq('id', estId); } catch (e) {}
   };
 
   const loadEstablishmentData = async (estId: string) => {
       const sb = getSb();
       if (!sb) return null;
-      
       try {
-          // Fix: Added cast to any to allow destructuring of data and error
           const { data: est, error } = (await withTimeout(sb.from('establishments').select('*').eq('id', estId).single())) as any;
           if (error || !est) return null;
 
-          const { data: calls } = await sb.from('calls')
-            .select('*')
-            .eq('establishment_id', estId)
-            .in('status', ['SENT', 'VIEWED']); 
+          const { data: calls } = await sb.from('calls').select('*').eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']); 
           
           const tablesMap = new Map<string, Table>();
           calls?.forEach((c: DBCall) => {
@@ -163,26 +157,29 @@ export const useMockData = () => {
               photoUrl: est.photo_url, phrase: est.phrase, settings: est.settings || DEFAULT_SETTINGS,
               tables: tablesMap, eventLog: [], isOpen: est.is_open === true
           };
-
-          setEstablishments(prev => new Map(prev).set(estId, fullEst));
+          setEstablishments(prev => {
+              const next = new Map(prev);
+              next.set(estId, fullEst);
+              return next;
+          });
           return fullEst;
-      } catch (e) {
-          console.error("Falha ao carregar dados do estabelecimento:", e);
-          return null;
-      }
+      } catch (e) { return null; }
   };
 
   const fetchUserProfile = async (userId: string, email: string) => {
       const sb = getSb();
       if (!sb) return;
       try {
-          // Fix: Added cast to any to allow destructuring of data property
           const { data: profile } = (await withTimeout(sb.from('profiles').select('*').eq('id', userId).single())) as any;
           if (profile) {
               const user: User = { id: profile.id, email, password: '', role: profile.role as Role, name: profile.name, status: profile.status };
               if (user.role === Role.ESTABLISHMENT) {
                   const { data: est } = await sb.from('establishments').select('id').eq('owner_id', userId).single();
-                  if (est) user.establishmentId = est.id;
+                  if (est) {
+                      user.establishmentId = est.id;
+                      // IMPORTANTE: Carrega os dados IMEDIATAMENTE antes de setar o usuário para evitar o "Carregando"
+                      await loadEstablishmentData(est.id);
+                  }
               } else {
                   await loadCustomerData(userId);
               }
@@ -197,16 +194,14 @@ export const useMockData = () => {
       const sb = getSb();
       if (!sb) return;
       try {
-          // Fix: Added cast to any to allow destructuring of data property
           const { data: favs } = (await withTimeout(sb.from('customer_favorites').select('establishment_id').eq('user_id', userId))) as any;
           const favIds = favs?.map((f: any) => f.establishment_id) || [];
           const { data: details } = await sb.from('customer_details').select('*').eq('user_id', userId).maybeSingle();
-
           const profile: CustomerProfile = { userId, favoritedEstablishmentIds: favIds, phone: (details as any)?.phone, cep: (details as any)?.cep };
           setCustomerProfiles(prev => new Map(prev).set(userId, profile));
-          
-          for (const id of favIds) {
-              await loadEstablishmentData(id);
+          // Carrega favoritos imediatamente
+          if (favIds.length > 0) {
+              await Promise.all(favIds.map(id => loadEstablishmentData(id)));
           }
       } catch (e) {}
   };
@@ -216,39 +211,10 @@ export const useMockData = () => {
   const login = useCallback(async (email: string, password: string) => {
       const sb = getSb();
       if (!sb) throw new Error("Erro de conexão.");
-      
-      // Fix: Added cast to any to allow destructuring of data and error
       const { data, error } = (await withTimeout(sb.auth.signInWithPassword({ email, password }))) as any;
       if (error) throw error;
-      if (!data.user) throw new Error("Usuário não encontrado.");
-
       await fetchUserProfile(data.user.id, data.user.email!);
-      
-      const { data: est } = await sb.from('establishments').select('id').eq('owner_id', data.user.id).single();
-      if (est) {
-          await sb.from('establishments').update({ is_open: true }).eq('id', est.id);
-          await loadEstablishmentData(est.id);
-      }
   }, []);
-
-  const searchEstablishmentByPhone = async (phone: string) => {
-      const sb = getSb();
-      if (!sb) return null;
-      
-      const cleanSearch = sanitizePhone(phone);
-      if (!cleanSearch) throw new Error("Digite o telefone.");
-
-      try {
-        // Fix: Added cast to any to allow destructuring of data and error
-        const { data, error } = (await withTimeout(sb.from('establishments').select('id').eq('phone', cleanSearch).maybeSingle())) as any;
-        if (error) throw error;
-        if (!data) return null;
-        return await loadEstablishmentData(data.id);
-      } catch (e: any) {
-          console.error("Erro na busca:", e);
-          throw new Error(e.message || "Erro ao buscar.");
-      }
-  }
 
   const logout = useCallback(async () => {
       const sb = getSb();
@@ -259,67 +225,34 @@ export const useMockData = () => {
       await sb.auth.signOut();
   }, [currentUser]);
 
-  const addCall = useCallback(async (estId: string, tableNum: string, type: CallType) => {
+  const registerEstablishment = async (name: string, phone: string, email: string, password: string, photo: string | null, phrase: string) => {
       const sb = getSb();
-      if (!sb) return;
-      try {
-          await withTimeout(sb.from('calls').insert({ establishment_id: estId, table_number: tableNum, type, status: CallStatus.SENT, created_at_ts: Date.now() }));
-          await loadEstablishmentData(estId); 
-      } catch (e) {
-          alert("Erro ao enviar chamado. Tente novamente.");
-      }
-  }, []);
+      if (!sb) throw new Error("Erro de conexão.");
+      
+      const { data, error } = (await sb.auth.signUp({ email, password })) as any;
+      if (error) throw error;
 
-  // Outros métodos simplificados para manter robustez
-  const checkPendingCallsOnLogin = async (estId: string) => {
-      const sb = getSb();
-      if (!sb) return false;
-      const { count } = await sb.from('calls').select('*', { count: 'exact', head: true }).eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']);
-      return (count || 0) > 0;
+      const uid = data.user!.id;
+      await sb.from('profiles').insert({ id: uid, email, role: Role.ESTABLISHMENT, name, status: UserStatus.TESTING });
+      // CORREÇÃO: is_open inicia como false
+      await sb.from('establishments').insert({ 
+          owner_id: uid, name, phone: sanitizePhone(phone), 
+          photo_url: photo, phrase, settings: DEFAULT_SETTINGS, is_open: false 
+      });
+      return { name };
   };
 
-  const closeEstablishmentWorkday = async (estId: string) => {
+  const registerCustomer = async (name: string, email: string, password: string, phone?: string, cep?: string) => {
       const sb = getSb();
-      if (!sb) return;
-      await sb.from('establishments').update({ is_open: false }).eq('id', estId);
-      await sb.from('calls').update({ status: CallStatus.CANCELED }).eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']);
-      await loadEstablishmentData(estId);
+      if (!sb) throw new Error("Erro de conexão.");
+      const { data, error } = (await sb.auth.signUp({ email, password })) as any;
+      if (error) throw error;
+      const uid = data.user!.id;
+      await sb.from('profiles').insert({ id: uid, email, role: Role.CUSTOMER, name, status: UserStatus.TESTING });
+      if (phone || cep) await sb.from('customer_details').insert({ user_id: uid, phone, cep });
+      return { name };
   };
 
-  const attendOldestCallByType = async (estId: string, tableNum: string, type: CallType) => {
-      const sb = getSb();
-      const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('type', type).in('status', ['SENT', 'VIEWED']).order('created_at_ts', {ascending: true}).limit(1);
-      if (data?.[0]) {
-          await sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('id', data[0].id);
-          await loadEstablishmentData(estId);
-      }
-  };
-
-  const cancelOldestCallByType = async (estId: string, tableNum: string, type: CallType) => {
-      const sb = getSb();
-      const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('type', type).in('status', ['SENT', 'VIEWED']).order('created_at_ts', {ascending: true}).limit(1);
-      if (data?.[0]) {
-          await sb.from('calls').update({ status: CallStatus.CANCELED }).eq('id', data[0].id);
-          await loadEstablishmentData(estId);
-      }
-  };
-
-  const viewAllCallsForTable = async (estId: string, tableNum: string) => {
-      const sb = getSb();
-      const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('status', CallStatus.SENT);
-      if (data?.length) {
-          const ids = data.map((c: any) => c.id);
-          await sb.from('calls').update({ status: CallStatus.VIEWED }).in('id', ids);
-      }
-  };
-
-  const closeTable = async (estId: string, tableNum: string) => {
-      const sb = getSb();
-      await sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('establishment_id', estId).eq('table_number', tableNum).in('status', ['SENT', 'VIEWED']);
-      await loadEstablishmentData(estId);
-  };
-
-  // Fix: Exposed currentEstablishment and currentCustomerProfile to resolve AppContextType missing property errors
   const currentEstablishment = currentUser?.establishmentId ? establishments.get(currentUser.establishmentId) : null;
   const currentCustomerProfile = currentUser?.id ? customerProfiles.get(currentUser.id) : null;
 
@@ -327,20 +260,63 @@ export const useMockData = () => {
       isInitialized, isUpdating,
       currentUser, users, establishments, customerProfiles, activeSessions,
       currentEstablishment, currentCustomerProfile,
-      login, logout, closeEstablishmentWorkday, checkPendingCallsOnLogin,
-      // Fix: Added arguments to register functions to match component calls
-      registerCustomer: async (name: string, email: string, password: string, phone?: string, cep?: string) => {
-          return { name }; // Placeholder implementation for TS fix
+      login, logout, registerCustomer, registerEstablishment,
+      searchEstablishmentByPhone: async (phone: string) => {
+          const sb = getSb();
+          const clean = sanitizePhone(phone);
+          const { data } = await sb.from('establishments').select('id').eq('phone', clean).maybeSingle();
+          if (data) return await loadEstablishmentData(data.id);
+          return null;
       },
-      registerEstablishment: async (name: string, phone: string, email: string, password: string, photo: string | null, phrase: string) => {
-          return { name }; // Placeholder implementation for TS fix
+      addCall: async (estId: string, tableNum: string, type: CallType) => {
+          const sb = getSb();
+          await sb.from('calls').insert({ establishment_id: estId, table_number: tableNum, type, status: CallStatus.SENT, created_at_ts: Date.now() });
+          await loadEstablishmentData(estId);
       },
-      addCall, cancelOldestCallByType, attendOldestCallByType, viewAllCallsForTable, closeTable,
+      closeEstablishmentWorkday: async (id: string) => {
+          const sb = getSb();
+          await sb.from('establishments').update({ is_open: false }).eq('id', id);
+          await sb.from('calls').update({ status: CallStatus.CANCELED }).eq('establishment_id', id).in('status', ['SENT', 'VIEWED']);
+          await loadEstablishmentData(id);
+      },
+      checkPendingCallsOnLogin: async (id: string) => {
+          const sb = getSb();
+          const { count } = await sb.from('calls').select('*', { count: 'exact', head: true }).eq('establishment_id', id).in('status', ['SENT', 'VIEWED']);
+          return (count || 0) > 0;
+      },
+      attendOldestCallByType: async (estId: string, tableNum: string, type: CallType) => {
+          const sb = getSb();
+          const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('type', type).in('status', ['SENT', 'VIEWED']).order('created_at_ts', {ascending: true}).limit(1);
+          if (data?.[0]) {
+              await sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('id', data[0].id);
+              await loadEstablishmentData(estId);
+          }
+      },
+      cancelOldestCallByType: async (estId: string, tableNum: string, type: CallType) => {
+          const sb = getSb();
+          const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('type', type).in('status', ['SENT', 'VIEWED']).order('created_at_ts', {ascending: true}).limit(1);
+          if (data?.[0]) {
+              await sb.from('calls').update({ status: CallStatus.CANCELED }).eq('id', data[0].id);
+              await loadEstablishmentData(estId);
+          }
+      },
+      viewAllCallsForTable: async (estId: string, tableNum: string) => {
+          const sb = getSb();
+          const { data } = await sb.from('calls').select('id').eq('establishment_id', estId).eq('table_number', tableNum).eq('status', CallStatus.SENT);
+          if (data?.length) {
+              await sb.from('calls').update({ status: CallStatus.VIEWED }).in('id', data.map((c: any) => c.id));
+              await loadEstablishmentData(estId);
+          }
+      },
+      closeTable: async (estId: string, tableNum: string) => {
+          const sb = getSb();
+          await sb.from('calls').update({ status: CallStatus.ATTENDED }).eq('establishment_id', estId).eq('table_number', tableNum).in('status', ['SENT', 'VIEWED']);
+          await loadEstablishmentData(estId);
+      },
       getEstablishmentByPhone: (p: string) => Array.from(establishments.values()).find((e: Establishment) => e.phone === sanitizePhone(p)),
-      searchEstablishmentByPhone,
-      favoriteEstablishment: async (uid: string, estId: string) => { await (getSb() as any).from('customer_favorites').insert({ user_id: uid, establishment_id: estId }); await loadCustomerData(uid); },
-      unfavoriteEstablishment: async (uid: string, estId: string) => { await (getSb() as any).from('customer_favorites').delete().eq('user_id', uid).eq('establishment_id', estId); await loadCustomerData(uid); },
-      updateSettings: async (id: string, s: Settings) => { await (getSb() as any)?.from('establishments').update({ settings: s }).eq('id', id); },
+      favoriteEstablishment: async (uid: string, estId: string) => { await getSb().from('customer_favorites').insert({ user_id: uid, establishment_id: estId }); await loadCustomerData(uid); },
+      unfavoriteEstablishment: async (uid: string, estId: string) => { await getSb().from('customer_favorites').delete().eq('user_id', uid).eq('establishment_id', estId); await loadCustomerData(uid); },
+      updateSettings: async (id: string, s: Settings) => { await getSb().from('establishments').update({ settings: s }).eq('id', id); await loadEstablishmentData(id); },
       getTableSemaphoreStatus: (table: Table, settings: Settings): SemaphoreStatus => {
           const active = table.calls.filter(c => c.status === 'SENT' || c.status === 'VIEWED');
           if (!active.length) return SemaphoreStatus.IDLE;
@@ -360,7 +336,6 @@ export const useMockData = () => {
       },
       trackTableSession: (eid: string, t: string) => setActiveSessions(prev => new Set(prev).add(`${eid}:${t}`)),
       clearAllSessions: async () => {}, deleteCurrentUser: async () => {}, 
-      // Fix: Added arguments to updateUserStatus to match component call
       updateUserStatus: async (userId: string, status: UserStatus) => {}, 
       subscribeToEstablishmentCalls: () => () => {}, 
   }

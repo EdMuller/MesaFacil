@@ -33,7 +33,6 @@ const EstablishmentDashboard: React.FC = () => {
   
   const hasCheckedPendingRef = useRef(false);
 
-  // Regra 2: Ao entrar, verificar chamados pendentes
   useEffect(() => {
       const check = async () => {
           if (currentEstablishment && !hasCheckedPendingRef.current) {
@@ -45,11 +44,6 @@ const EstablishmentDashboard: React.FC = () => {
                   );
                   if (!keep) {
                       await closeEstablishmentWorkday(currentEstablishment.id);
-                      // Reabre pois o close fecha
-                      // (O ideal seria uma função separada 'clearCalls', mas vamos usar o que temos)
-                      // Como o closeWorkday define is_open=false, o polling vai pegar isso.
-                      // O usuário terá que clicar em "Abrir" ou o login já forçou open.
-                      // Vamos apenas zerar chamados manualmente aqui se necessário, mas o closeWorkday é seguro.
                   }
               }
           }
@@ -85,16 +79,23 @@ const EstablishmentDashboard: React.FC = () => {
       }
   }
 
-  if (!currentEstablishment) return <div className="p-10 text-center">Carregando...</div>;
+  if (!currentEstablishment) {
+      return (
+          <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
+              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <h2 className="text-xl font-bold text-gray-800">Sincronizando Estabelecimento...</h2>
+              <p className="text-gray-500 mt-2">Estamos preparando o seu painel de atendimento.</p>
+          </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 pb-20">
       <Header onBack={logout} isEstablishment backText="Sair" />
       
-      {/* Feedback de Polling */}
       {isUpdating && (
-          <div className="bg-blue-600 text-white text-xs text-center py-1 transition-all duration-500">
-              Sincronizando dados...
+          <div className="bg-blue-600 text-white text-[10px] uppercase font-bold text-center py-1 transition-all duration-500 animate-pulse">
+              Sincronizando em tempo real...
           </div>
       )}
 
@@ -126,6 +127,7 @@ const EstablishmentDashboard: React.FC = () => {
           {tablesWithStatus.length === 0 ? (
              <div className="flex flex-col items-center justify-center py-12 text-gray-400">
                  <p className="text-lg font-medium">Tudo tranquilo!</p>
+                 <p className="text-sm">Aguardando novos chamados dos clientes.</p>
              </div>
           ) : (
             <div className="space-y-4">
@@ -159,17 +161,19 @@ const EstablishmentDashboard: React.FC = () => {
 };
 
 const SemaphoreCard: React.FC<{ status: SemaphoreStatus; count: number }> = ({ status, count }) => {
-    // ... (Mantido igual)
     if(status === SemaphoreStatus.IDLE) return null;
     const colors = { GREEN: 'bg-green-100 text-green-800', YELLOW: 'bg-yellow-100 text-yellow-800', RED: 'bg-red-100 text-red-800', IDLE: '' };
-    return <div className={`p-4 rounded-lg shadow ${colors[status]} flex-1 font-bold text-center text-2xl`}>{count}</div>;
+    const labels = { GREEN: 'Verde', YELLOW: 'Amarelo', RED: 'Vermelho', IDLE: '' };
+    return (
+        <div className={`p-4 rounded-lg shadow ${colors[status]} flex flex-col items-center justify-center`}>
+            <span className="text-xs uppercase font-bold opacity-70 mb-1">{labels[status]}</span>
+            <span className="text-3xl font-black">{count}</span>
+        </div>
+    );
 };
 
-// ... TableCard e CallActionButton mantidos com lógica simplificada de props ...
-// Para brevidade, assuma que a renderização visual é idêntica ao anterior, 
-// apenas removendo timeouts internos complexos, pois o estado vem do Pai via Polling.
 const TableCard: React.FC<any> = ({ table, onCloseTable, onViewCalls, semaphore }) => {
-    const { currentEstablishment, attendOldestCallByType, getCallTypeSemaphoreStatus } = useAppContext();
+    const { currentEstablishment, attendOldestCallByType } = useAppContext();
     const callsByType = table.calls.reduce((acc:any, call:any) => {
         if(call.status === CallStatus.SENT || call.status === CallStatus.VIEWED) {
             acc[call.type] = (acc[call.type] || 0) + 1;
@@ -177,20 +181,30 @@ const TableCard: React.FC<any> = ({ table, onCloseTable, onViewCalls, semaphore 
         return acc;
     }, {});
 
+    const borderColors = { RED: 'border-red-500', YELLOW: 'border-yellow-500', GREEN: 'border-green-500', IDLE: 'border-gray-200' };
+
     return (
-        <div className={`border-l-4 ${semaphore === 'RED' ? 'border-red-500' : semaphore === 'YELLOW' ? 'border-yellow-500' : 'border-green-500'} bg-gray-50 rounded-lg p-3 shadow-sm`}>
-            <div className="flex justify-between items-center mb-2">
-                <h3 className="text-xl font-bold">Mesa {table.number}</h3>
-                <button onClick={onCloseTable} className="bg-red-500 text-white text-xs px-2 py-1 rounded">Fechar Mesa</button>
+        <div className={`border-l-8 ${borderColors[semaphore as SemaphoreStatus]} bg-gray-50 rounded-lg p-4 shadow-sm transition-all`}>
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-2xl font-black text-gray-800">Mesa {table.number}</h3>
+                <button 
+                    onClick={onCloseTable} 
+                    className="bg-white border border-red-200 text-red-600 text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors uppercase tracking-tight"
+                >
+                    Fechar Mesa
+                </button>
             </div>
             <div className="flex gap-2 flex-wrap">
                 {Object.entries(callsByType).map(([type, count]) => (
-                    <button key={type} onClick={() => attendOldestCallByType(currentEstablishment!.id, table.number, type as CallType)} className="bg-blue-600 text-white text-sm px-3 py-1 rounded shadow">
+                    <button 
+                        key={type} 
+                        onClick={() => attendOldestCallByType(currentEstablishment!.id, table.number, type as CallType)} 
+                        className="bg-blue-600 text-white text-sm font-bold px-4 py-2 rounded-xl shadow-md hover:bg-blue-700 transition-all active:scale-95"
+                    >
                         {CALL_TYPE_INFO[type as CallType].label} ({count as number})
                     </button>
                 ))}
             </div>
-            {/* Botão de Visualizar Chamados implícito na ação de abrir o card ou via polling que marca como visualizado se o app do dono estiver aberto na tela certa - simplificamos para ação manual ou automática no backend se desejar */}
         </div>
     )
 }
