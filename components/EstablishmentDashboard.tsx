@@ -24,7 +24,7 @@ const EstablishmentDashboard: React.FC = () => {
       closeEstablishmentWorkday, 
       checkPendingCallsOnLogin,
       isUpdating,
-      restoreEstablishment // Nova função
+      restoreEstablishment
   } = useAppContext();
 
   const [isSettingsOpen, setSettingsOpen] = useState(false);
@@ -41,7 +41,7 @@ const EstablishmentDashboard: React.FC = () => {
       const timer = setTimeout(() => {
           if (!currentEstablishment) {
               setLoadError(true);
-              // Se passar 15 segundos e ainda não tiver estabelecimento, sugere restaurar
+              // Se passar 12 segundos e ainda não tiver estabelecimento, sugere restaurar
               setShowRestoreBtn(true);
           }
       }, 12000);
@@ -97,37 +97,39 @@ const EstablishmentDashboard: React.FC = () => {
           <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-6 text-center">
               <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
               <h2 className="text-xl font-bold text-gray-800">Sincronizando Estabelecimento...</h2>
-              <p className="text-gray-500 mt-2">Estamos preparando o seu painel de atendimento em tempo real.</p>
+              <p className="text-gray-500 mt-2">Isso deve levar apenas alguns segundos.</p>
               
               {loadError && (
-                  <div className="mt-8 p-4 bg-red-50 rounded-xl border border-red-100 max-w-xs animate-fade-in">
-                      <p className="text-red-700 text-sm font-medium mb-3">Ops! A sincronização está demorando demais.</p>
+                  <div className="mt-8 p-4 bg-red-50 rounded-xl border border-red-100 max-w-xs animate-fade-in w-full">
+                      <p className="text-red-700 text-sm font-medium mb-3">O carregamento está demorando.</p>
                       
                       {showRestoreBtn && (
                          <div className="mb-4 bg-yellow-100 border border-yellow-300 p-3 rounded text-left">
                              <p className="text-yellow-800 text-xs font-bold mb-1">Diagnóstico:</p>
-                             <p className="text-yellow-800 text-xs mb-2">Não encontramos os dados do seu restaurante, embora seu login esteja correto.</p>
+                             <p className="text-yellow-800 text-xs mb-2 leading-tight">Os dados do seu restaurante parecem inacessíveis ou corrompidos.</p>
                              <button 
                                 onClick={restoreEstablishment}
-                                className="w-full bg-yellow-600 text-white py-2 rounded font-bold hover:bg-yellow-700 transition-colors"
+                                className="w-full bg-yellow-600 text-white py-2 rounded font-bold hover:bg-yellow-700 transition-colors shadow-sm"
                              >
-                                 Restaurar Cadastro
+                                 Reparar Cadastro
                              </button>
                          </div>
                       )}
 
-                      <button 
-                        onClick={() => window.location.reload()} 
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow hover:bg-red-700 transition-colors"
-                      >
-                          Recarregar Página
-                      </button>
-                      <button 
-                        onClick={logout} 
-                        className="block w-full mt-3 text-red-500 text-[10px] font-bold uppercase hover:underline"
-                      >
-                          Sair e Tentar Novamente
-                      </button>
+                      <div className="flex gap-2 flex-col">
+                        <button 
+                            onClick={() => window.location.reload()} 
+                            className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-xs font-bold shadow-sm hover:bg-gray-50 transition-colors"
+                        >
+                            Recarregar Página
+                        </button>
+                        <button 
+                            onClick={logout} 
+                            className="text-red-500 text-[10px] font-bold uppercase hover:underline py-1"
+                        >
+                            Sair e Tentar Novamente
+                        </button>
+                      </div>
                   </div>
               )}
           </div>

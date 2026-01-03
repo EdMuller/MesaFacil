@@ -77,8 +77,10 @@ export const useMockData = () => {
           try {
               console.log("[Boot] Verificando sessão...");
               // Verifica sessão com timeout para não travar o carregamento inicial
-              const { data: { session } } = (await withTimeout(client.auth.getSession(), 5000, "GetSession")) as any;
+              const { data: { session }, error } = (await withTimeout(client.auth.getSession(), 5000, "GetSession")) as any;
               
+              if (error) throw error;
+
               if (session?.user) {
                   console.log("[Boot] Usuário encontrado:", session.user.email);
                   // Carrega o perfil do usuário, mas não deixa travar o app se falhar
@@ -126,18 +128,17 @@ export const useMockData = () => {
           setIsUpdating(true); 
           try {
               if (currentUser.role === Role.ESTABLISHMENT) {
-                  // Tenta enviar heartbeat mesmo se o establishmentId não estiver definido localmente (busca dinâmica)
-                  // Isso resolve o problema de "status não atualizando"
                   if (currentUser.establishmentId) {
                       await sendHeartbeat(currentUser.establishmentId);
                       await loadEstablishmentData(currentUser.establishmentId);
                   } else {
-                      // Se o ID sumiu do estado, tenta recuperar
+                      // Se o ID sumiu do estado, tenta recuperar dinamicamente
                        const sb = getSb();
                        const { data: est } = await sb.from('establishments').select('id').eq('owner_id', currentUser.id).maybeSingle();
                        if (est) {
                            setCurrentUser(prev => prev ? {...prev, establishmentId: est.id} : null);
                            await sendHeartbeat(est.id);
+                           await loadEstablishmentData(est.id);
                        }
                   }
               } 
@@ -182,11 +183,17 @@ export const useMockData = () => {
       const sb = getSb();
       if (!sb) return;
       try { 
-          // ISOLAMENTO DE FALHA: Heartbeat é crítico, se falhar logamos mas não paramos o app
-          await sb.from('establishments').update({ is_open: true, updated_at: new Date().toISOString() }).eq('id', estId); 
-          console.log(`[Heartbeat] Enviado para ${estId}`);
+          // FIX: REMOVIDO updated_at POIS ESTAVA CAUSANDO ERRO 400 SE A COLUNA NÃO EXISTISSE
+          // Enviamos apenas is_open: true para garantir que o estabelecimento conste como aberto
+          const { error } = await sb.from('establishments').update({ is_open: true }).eq('id', estId); 
+          
+          if (error) {
+              console.error(`[Heartbeat] Erro ao enviar para ${estId}:`, error.message, error.details);
+          } else {
+              console.log(`[Heartbeat] Sucesso para ${estId}`);
+          }
       } catch (e) {
-          console.error("[Heartbeat] Falha ao atualizar status:", e);
+          console.error("[Heartbeat] Exceção:", e);
       }
   };
 
@@ -194,12 +201,15 @@ export const useMockData = () => {
       const sb = getSb();
       if (!sb) return null;
       try {
+          // Busca dados do estabelecimento
           const { data: est, error: estError } = (await withTimeout(sb.from('establishments').select('*').eq('id', estId).single(), 8000, "LoadEst")) as any;
+          
           if (estError || !est) {
-              console.warn(`[LoadEst] Estabelecimento ${estId} não encontrado ou erro.`);
+              console.warn(`[LoadEst] Estabelecimento ${estId} erro:`, estError);
               return null;
           }
 
+          // Busca chamados ativos
           const { data: calls, error: callsError } = (await withTimeout(sb.from('calls').select('*').eq('establishment_id', estId).in('status', ['SENT', 'VIEWED']), 5000, "LoadCalls")) as any; 
           
           if (callsError) console.warn("[LoadEst] Erro ao carregar chamados:", callsError);
@@ -211,6 +221,7 @@ export const useMockData = () => {
               tablesMap.set(c.table_number, existing);
           });
 
+          // Preenche mesas vazias
           const totalTables = est.settings?.totalTables || DEFAULT_SETTINGS.totalTables;
           for(let i=1; i<=totalTables; i++) {
               const num = i.toString();
@@ -257,29 +268,31 @@ export const useMockData = () => {
               status: profile.status as UserStatus 
           };
           
-          // Define o usuário imediatamente para liberar a UI
+          // Define o usuário imediatamente
           setCurrentUser(user);
 
-          // Carregamentos secundários em paralelo
           if (user.role === Role.ESTABLISHMENT) {
-              console.log("[FetchProfile] Usuário é estabelecimento. Buscando dados do restaurante...");
+              console.log("[FetchProfile] Usuário é estabelecimento. Buscando vínculo...");
               const { data: est, error: estErr } = (await withTimeout(sb.from('establishments').select('id').eq('owner_id', userId).maybeSingle(), 5000, "GetEstLink")) as any;
               
               if (est) {
                   console.log(`[FetchProfile] Restaurante encontrado: ${est.id}`);
                   user.establishmentId = est.id;
                   setCurrentUser(prev => prev ? { ...prev, establishmentId: est.id } : null);
+                  // Carrega dados iniciais
                   await loadEstablishmentData(est.id);
-                  await sendHeartbeat(est.id); // Força status update no login
+                  // Envia heartbeat inicial (sem updated_at)
+                  await sendHeartbeat(est.id); 
               } else {
-                  console.error("[FetchProfile] CRÍTICO: Usuário é estabelecimento mas NÃO tem registro na tabela establishments.");
-                  // Não fazemos nada aqui, o Dashboard vai lidar com a falta de establishmentId mostrando botão de Reparar
+                  console.error("[FetchProfile] CRÍTICO: Usuário sem estabelecimento vinculado.");
+                  // Dashboard tratará isso mostrando botão de Restaurar
               }
           } else {
               loadCustomerData(userId);
           }
       } catch (e) {
           console.error("[FetchProfile] Erro desconhecido:", e);
+          setInitError("Erro ao carregar dados do usuário.");
       }
   };
 
@@ -331,7 +344,6 @@ export const useMockData = () => {
       const sb = getSb();
       console.log("[Restore] Tentando recriar estabelecimento...");
       try {
-          // Cria um estabelecimento padrão para este usuário
           await withTimeout(sb.from('establishments').insert({ 
               owner_id: currentUser.id, 
               name: currentUser.name || "Meu Restaurante", 
@@ -340,10 +352,10 @@ export const useMockData = () => {
               is_open: true 
           }), 10000, "RestoreEst");
           
-          alert("Estabelecimento restaurado! Recarregando...");
+          alert("Estabelecimento restaurado! A página será recarregada.");
           window.location.reload();
       } catch (e: any) {
-          alert("Erro ao restaurar: " + e.message);
+          alert("Erro ao restaurar: " + (e.message || "Erro desconhecido"));
       }
   };
 
