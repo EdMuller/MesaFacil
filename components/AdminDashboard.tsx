@@ -54,9 +54,11 @@ const UserManagementSection = () => {
         try {
             let newUser;
             if (formType === Role.ESTABLISHMENT) {
-                newUser = registerEstablishment(formData.name, formData.phone, formData.email, formData.password, formData.photo, formData.phrase || '');
+                // Fix: Added await since register functions are async
+                newUser = await registerEstablishment(formData.name, formData.phone, formData.email, formData.password, formData.photo, formData.phrase || '');
             } else {
-                newUser = registerCustomer(formData.name, formData.email, formData.password);
+                // Fix: Added await since register functions are async
+                newUser = await registerCustomer(formData.name, formData.email, formData.password);
             }
             setFeedback(`Usuário '${newUser.name}' criado com sucesso!`);
             setTimeout(() => setFeedback(''), 3000);
